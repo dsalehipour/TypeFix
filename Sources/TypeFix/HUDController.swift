@@ -58,7 +58,7 @@ final class HUDController {
             case .manual:
                 stopCountdown()
                 show(symbol: "record.circle", tint: .systemRed, spinning: false,
-                     text: "Recording — \(hotkeySymbol) to fix")
+                     text: "Recording · \(hotkeySymbol) to fix")
             case .auto:
                 // The countdown timer drives the green/yellow display; only paint a
                 // green light here if a countdown isn't already running.
@@ -125,6 +125,13 @@ final class HUDController {
         scheduleHide(after: 2.5)
     }
 
+    func flashCopied() {
+        stopCountdown()
+        flashUntil = Date().addingTimeInterval(1.4)
+        show(symbol: "doc.on.doc.fill", tint: .controlAccentColor, spinning: false, text: "Copied original text")
+        scheduleHide(after: 1.4)
+    }
+
     func hide() {
         hideTimer?.invalidate()
         hideTimer = nil
@@ -137,17 +144,26 @@ final class HUDController {
 
     /// Quietly note that the text is too short to auto-fix yet.
     func flashTooShort(count: Int, threshold: Int) {
+        showNote("Too short to fix · \(count)/\(threshold)")
+    }
+
+    /// A low-importance grey note for transient information.
+    func flashInfo(_ text: String) {
+        showNote(text)
+    }
+
+    private func showNote(_ text: String) {
         stopCountdown()
         hide() // clear the main pill; the note replaces it
         let panel = notePanelOrCreate()
-        noteLabel.stringValue = "Too short to fix · \(count)/\(threshold)"
+        noteLabel.stringValue = text
 
         panel.layoutIfNeeded()
         let fitting = panel.contentView?.fittingSize ?? NSSize(width: 150, height: 24)
         panel.setContentSize(NSSize(width: max(fitting.width, 120), height: 26))
         if let screen = NSScreen.main {
             let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 66))
+            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 50))
         }
         panel.alphaValue = 0.92
         panel.orderFrontRegardless()
@@ -263,7 +279,7 @@ final class HUDController {
 
         if let screen = NSScreen.main {
             let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 96))
+            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 50))
         }
         panel.orderFrontRegardless()
     }

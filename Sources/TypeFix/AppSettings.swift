@@ -8,8 +8,8 @@ enum CorrectionMode: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .auto: return "Auto — fix when I pause typing"
-        case .manual: return "Manual — double-Shift to start & stop"
+        case .auto: return "Auto (fix when I pause typing)"
+        case .manual: return "Manual (double-Shift to start & stop)"
         }
     }
 }
@@ -29,10 +29,35 @@ enum Provider: String, CaseIterable, Identifiable {
 
     var defaultModel: String {
         switch self {
-        case .anthropic: return "claude-haiku-4-5"
-        case .openai: return "gpt-4o-mini"
+        case .anthropic: return "claude-sonnet-4-6"
+        case .openai: return "gpt-5.4-mini"
         }
     }
+
+    /// Curated, current model ids offered in the Settings dropdown.
+    var suggestedModels: [ModelOption] {
+        switch self {
+        case .anthropic:
+            return [
+                ModelOption(id: "claude-sonnet-4-6", label: "Sonnet 4.6 (balanced, recommended)"),
+                ModelOption(id: "claude-haiku-4-5", label: "Haiku 4.5 (fastest & cheapest)"),
+                ModelOption(id: "claude-opus-4-8", label: "Opus 4.8 (most capable)"),
+            ]
+        case .openai:
+            return [
+                ModelOption(id: "gpt-5.4-mini", label: "GPT-5.4 mini (fast & cheap, recommended)"),
+                ModelOption(id: "gpt-5.4", label: "GPT-5.4 (capable & affordable)"),
+                ModelOption(id: "gpt-5.5", label: "GPT-5.5 (most capable)"),
+                ModelOption(id: "gpt-5.4-nano", label: "GPT-5.4 nano (cheapest)"),
+            ]
+        }
+    }
+}
+
+/// A model choice shown in the Settings dropdown.
+struct ModelOption: Identifiable, Hashable {
+    let id: String      // the model id sent to the API
+    let label: String   // friendly description
 }
 
 /// Model ids that providers have since retired. If a user has one of these
@@ -43,6 +68,8 @@ private let retiredModels: Set<String> = [
     "claude-3-haiku-20240307",
     "claude-3-5-sonnet-latest",
     "claude-3-7-sonnet-latest",
+    "gpt-4o-mini",
+    "gpt-4o",
 ]
 
 /// User-facing settings. Non-secret values live in `UserDefaults`;
@@ -53,11 +80,11 @@ final class AppSettings: ObservableObject {
     private enum Keys {
         static let provider = "provider"
         static let model = "model"
-        static let armed = "armed"
         static let correctionMode = "correctionMode"
         static let autoDelay = "autoDelay"
         static let autoMinChars = "autoMinChars"
         static let hotkey = "hotkey"
+        static let didUpgradeToSonnetDefault = "didUpgradeToSonnetDefault"
     }
 
     static let autoDelayRange: ClosedRange<Double> = 0.6...4.0
@@ -79,11 +106,6 @@ final class AppSettings: ObservableObject {
 
     @Published var model: String {
         didSet { defaults.set(model, forKey: Keys.model) }
-    }
-
-    /// Whether the hotkey / auto-correction is active. Persisted across launches.
-    @Published var armed: Bool {
-        didSet { defaults.set(armed, forKey: Keys.armed) }
     }
 
     @Published var correctionMode: CorrectionMode {
@@ -113,7 +135,6 @@ final class AppSettings: ObservableObject {
         let storedProvider = defaults.string(forKey: Keys.provider).flatMap(Provider.init(rawValue:)) ?? .anthropic
         self.provider = storedProvider
         self.model = defaults.string(forKey: Keys.model) ?? storedProvider.defaultModel
-        self.armed = defaults.object(forKey: Keys.armed) as? Bool ?? true
         // Default to Manual (explicit double-Shift). Auto is opt-in.
         self.correctionMode = defaults.string(forKey: Keys.correctionMode)
             .flatMap(CorrectionMode.init(rawValue:)) ?? .manual
@@ -128,11 +149,22 @@ final class AppSettings: ObservableObject {
             self.hotkey = .bothShifts
         }
 
-        // Property observers don't fire during init, so persist the migration
+        // Property observers don't fire during init, so persist migrations
         // explicitly.
         if retiredModels.contains(model) {
             model = storedProvider.defaultModel
             defaults.set(model, forKey: Keys.model)
+        }
+
+        // One-time: users on the previous default (Haiku) move to the new
+        // recommended default (Sonnet). Deliberate Haiku choices made afterward
+        // are preserved, since this only runs once.
+        if !defaults.bool(forKey: Keys.didUpgradeToSonnetDefault) {
+            if model == "claude-haiku-4-5" {
+                model = Provider.anthropic.defaultModel
+                defaults.set(model, forKey: Keys.model)
+            }
+            defaults.set(true, forKey: Keys.didUpgradeToSonnetDefault)
         }
     }
 

@@ -17,6 +17,7 @@ final class KeyEventTap {
     var isArmed: () -> Bool = { false }
     var currentHotkey: () -> Hotkey = { .bothShifts }
     var onHotkey: (() -> Void)?
+    var onCopyLast: (() -> Void)?
     var onCharacters: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEnter: (() -> Void)?
@@ -101,6 +102,11 @@ final class KeyEventTap {
         case .flagsChanged:
             handleFlagsChanged(event)
         case .keyDown:
+            // ⌘⇧C copies the last original text; swallow it.
+            if isCopyLastShortcut(event) {
+                onCopyLast?()
+                return nil
+            }
             // A matching custom shortcut fires the hotkey and is swallowed so it
             // doesn't also reach the focused app.
             if isHotkeyComboMatch(event) {
@@ -115,6 +121,14 @@ final class KeyEventTap {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func isCopyLastShortcut(_ event: CGEvent) -> Bool {
+        guard isArmed() else { return false }
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        guard keyCode == 8 else { return false } // 'c'
+        let relevant: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+        return event.flags.intersection(relevant) == [.maskCommand, .maskShift]
     }
 
     private func isHotkeyComboMatch(_ event: CGEvent) -> Bool {

@@ -72,15 +72,16 @@ needed.
 2. Choose **Anthropic** or **OpenAI** and paste your API key (stored in the Keychain).
 3. Optionally change the model, then press **Run Test** to confirm it works.
 
-Default models (fast + cheap):
+Pick a model from the dropdown, or choose **Other** to type any model id your
+provider supports.
 
-| Provider  | Default model        | Higher quality       |
-|-----------|----------------------|----------------------|
-| Anthropic | `claude-haiku-4-5`   | `claude-sonnet-4-6`  |
-| OpenAI    | `gpt-4o-mini`        | —                    |
+| Provider  | Default model        | Also available |
+|-----------|----------------------|----------------|
+| Anthropic | `claude-sonnet-4-6`  | `claude-haiku-4-5` (fastest/cheapest), `claude-opus-4-8` (most capable) |
+| OpenAI    | `gpt-5.4-mini`       | `gpt-5.4`, `gpt-5.5` (most capable), `gpt-5.4-nano` (cheapest) |
 
-Model ids change over time. If the API returns a "model not found" error, update
-the **Model** field in Settings (or click **Reset to default**).
+Model ids change over time. If the API returns a "model not found" error, pick a
+different model from the dropdown.
 
 ## Using it
 

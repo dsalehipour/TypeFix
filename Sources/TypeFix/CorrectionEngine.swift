@@ -30,6 +30,8 @@ final class CorrectionEngine {
     /// Fired (Auto mode) when a pause fires but the text is below the minimum
     /// length: (currentCount, threshold).
     var onAutoBelowThreshold: ((Int, Int) -> Void)?
+    /// Fired when the user presses the "copy last original" shortcut (⌘⇧C).
+    var onCopyLast: (() -> Void)?
 
     // Manual mode
     private var manualBuffer = ""
@@ -49,6 +51,7 @@ final class CorrectionEngine {
         tap.isArmed = { [weak self] in self?.isArmed ?? false }
         tap.currentHotkey = { [weak self] in self?.settings.hotkey ?? .bothShifts }
         tap.onHotkey = { [weak self] in self?.handleHotkey() }
+        tap.onCopyLast = { [weak self] in self?.onCopyLast?() }
         tap.onCharacters = { [weak self] characters in self?.handleCharacters(characters) }
         tap.onBackspace = { [weak self] in self?.handleBackspace() }
         tap.onEnter = { [weak self] in self?.handleEnter() }
@@ -57,7 +60,8 @@ final class CorrectionEngine {
         tap.onNavigation = { [weak self] in self?.handleNavigation() }
     }
 
-    var isArmed: Bool { settings.armed }
+    /// The app is active whenever it is running.
+    var isArmed: Bool { true }
     var mode: CorrectionMode { settings.correctionMode }
 
     @discardableResult
@@ -65,12 +69,6 @@ final class CorrectionEngine {
 
     /// Menu equivalent of pressing both Shift keys.
     func triggerHotkey() { handleHotkey() }
-
-    func setArmed(_ armed: Bool) {
-        settings.armed = armed
-        resetPending()
-        onStateChange?()
-    }
 
     func setMode(_ newMode: CorrectionMode) {
         guard settings.correctionMode != newMode else { return }

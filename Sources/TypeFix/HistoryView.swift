@@ -9,7 +9,7 @@ struct HistoryView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("History").font(.headline)
-                    Text("What you typed and what it became. Nothing is lost — copy the original back any time.")
+                    Text("What you typed and what it became. Nothing is lost; copy the original back any time.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -25,8 +25,11 @@ struct SettingsView: View {
     @ObservedObject var settings: AppSettings
 
     @State private var apiKey = ""
+    @State private var isCustomModel = false
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var accessibilityGranted = AXIsProcessTrusted()
+
+    private static let customModelTag = "__custom__"
 
     @State private var testInput = "whjkat m,ios th best thign swe dcan do to incmprve our converospn rates."
     @State private var testOutput = ""
@@ -50,8 +53,14 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: 460, height: 640)
-        .onAppear { apiKey = settings.apiKey ?? "" }
-        .onChange(of: settings.provider) { _, _ in apiKey = settings.apiKey ?? "" }
+        .onAppear {
+            apiKey = settings.apiKey ?? ""
+            syncCustomModel()
+        }
+        .onChange(of: settings.provider) { _, _ in
+            apiKey = settings.apiKey ?? ""
+            syncCustomModel()
+        }
         .onChange(of: apiKey) { _, newValue in settings.setAPIKey(newValue) }
         .onReceive(permissionTimer) { _ in accessibilityGranted = AXIsProcessTrusted() }
     }
@@ -62,7 +71,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("TypeFix")
                 .font(.largeTitle.bold())
-            Text("Fix sloppy typing with AI — automatically when you pause, or on a hotkey.")
+            Text("Fix sloppy typing with AI, automatically when you pause or on a hotkey.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -156,13 +165,21 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Model")
                         .font(.subheadline.weight(.medium))
-                    TextField("Model", text: $settings.model)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Reset to default (\(settings.provider.defaultModel))") {
-                        settings.model = settings.provider.defaultModel
+                    Picker("Model", selection: modelSelection) {
+                        ForEach(settings.provider.suggestedModels) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                        Divider()
+                        Text("Other (enter a model id)…").tag(Self.customModelTag)
                     }
-                    .buttonStyle(.link)
-                    .font(.caption)
+                    .labelsHidden()
+                    if isCustomModel {
+                        TextField("Model id", text: $settings.model)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Enter any model id your provider supports.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(8)
@@ -219,15 +236,6 @@ struct SettingsView: View {
     private var generalSection: some View {
         GroupBox("General") {
             VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Toggle("Enable TypeFix", isOn: Binding(
-                        get: { settings.armed },
-                        set: { settings.armed = $0 }
-                    ))
-                    Text("Master switch. When off, the double-Shift hotkey does nothing.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 Toggle("Launch at login", isOn: Binding(
                     get: { launchAtLogin },
                     set: { newValue in
@@ -245,12 +253,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if settings.correctionMode == .auto {
                     Label("Just type normally in any app.", systemImage: "1.circle")
-                    Label("Pause briefly — your text is auto-corrected in place.", systemImage: "2.circle")
+                    Label("Pause briefly, and your text is auto-corrected in place.", systemImage: "2.circle")
                     Label("Or tap both Shift keys to fix immediately.", systemImage: "3.circle")
                     Label("Clicking, arrow keys, Enter, or Tab cancel a pending fix.", systemImage: "exclamationmark.circle")
                 } else {
                     Label("Tap Left Shift + Right Shift together to begin capturing.", systemImage: "1.circle")
-                    Label("Type normally — your text appears as usual.", systemImage: "2.circle")
+                    Label("Type normally; your text appears as usual.", systemImage: "2.circle")
                     Label("Tap both Shift keys again to replace it with the fix.", systemImage: "3.circle")
                     Label("Press Esc while capturing to cancel.", systemImage: "escape")
                 }
@@ -258,6 +266,31 @@ struct SettingsView: View {
             .font(.callout)
             .padding(8)
         }
+    }
+
+    // MARK: - Model selection
+
+    private var modelSelection: Binding<String> {
+        Binding(
+            get: {
+                if isCustomModel { return Self.customModelTag }
+                let ids = settings.provider.suggestedModels.map(\.id)
+                return ids.contains(settings.model) ? settings.model : Self.customModelTag
+            },
+            set: { newValue in
+                if newValue == Self.customModelTag {
+                    isCustomModel = true
+                } else {
+                    isCustomModel = false
+                    settings.model = newValue
+                }
+            }
+        )
+    }
+
+    private func syncCustomModel() {
+        let ids = settings.provider.suggestedModels.map(\.id)
+        isCustomModel = !ids.contains(settings.model)
     }
 
     // MARK: - Actions
