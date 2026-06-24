@@ -88,33 +88,34 @@ struct SettingsView: View {
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
 
-                if settings.correctionMode == .auto {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Pause before fixing")
-                                .font(.subheadline.weight(.medium))
-                            Spacer()
-                            Text(String(format: "%.1fs", settings.autoDelay))
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                        Slider(value: $settings.autoDelay, in: AppSettings.autoDelayRange, step: 0.1)
-                        Text("After you stop typing this long, TypeFix fixes what you just typed. Tap both Shift keys to fix instantly.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                if settings.correctionMode == .manual {
+                    Text("Use the trigger below to start capturing, type, then trigger again to fix.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-                        Stepper(
-                            "Don't auto-fix until at least \(settings.autoMinChars) characters",
-                            value: $settings.autoMinChars,
-                            in: AppSettings.autoMinCharsRange
-                        )
-                        .padding(.top, 4)
-                        Text("Short fragments are left alone (a small note shows the count). The hotkey still fixes any length instantly.")
-                            .font(.caption)
+                Divider()
+
+                // Auto-mode options stay visible so they can be set up in advance.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Auto mode options")
+                        .font(.subheadline.weight(.medium))
+                    HStack {
+                        Text("Pause before fixing")
+                        Spacer()
+                        Text(String(format: "%.1fs", settings.autoDelay))
+                            .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("Use the trigger below to start capturing, type, then trigger again to fix.")
+                    Slider(value: $settings.autoDelay, in: AppSettings.autoDelayRange, step: 0.1)
+
+                    Stepper(
+                        "Don't auto-fix until at least \(settings.autoMinChars) characters",
+                        value: $settings.autoMinChars,
+                        in: AppSettings.autoMinCharsRange
+                    )
+                    .padding(.top, 4)
+                    Text("These apply when Autofix is on: TypeFix waits for a pause and leaves fragments shorter than this alone. The hotkey still fixes any length instantly.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
