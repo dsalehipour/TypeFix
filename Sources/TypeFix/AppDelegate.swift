@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.hud.flashTooShort(count: count, threshold: threshold)
         }
         engine.onCopyLast = { [weak self] in self?.copyLastOriginal() }
+        engine.onNoChange = { [weak self] in self?.hud.flashAllGood() }
 
         startEngineOrRequestPermission()
         refreshUI()

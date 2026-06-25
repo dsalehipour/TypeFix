@@ -26,7 +26,7 @@ never sends your keystrokes anywhere except the AI provider *you* configure.
 - **Minimum‑length threshold** — don't bother fixing tiny fragments; a small, quiet note tells you why.
 - **History** — see every original → corrected pair and copy your original back if you ever want it. Nothing is lost.
 - **Bring your own key** — Anthropic or OpenAI, stored in the macOS Keychain.
-- **Direct keystroke injection** — replaces text by typing it, so it never touches your clipboard.
+- **Clean replacement** — pastes the fix in place (bypassing the target app's autocorrect/auto-period), then restores your clipboard.
 
 ## Requirements
 
@@ -131,7 +131,7 @@ pause** straight from the menu).
 | `KeyEventTap.swift` | Active `CGEventTap`: shortcut detection, continuous capture, boundary detection |
 | `CorrectionEngine.swift` | State machine for Manual + Auto (pause) modes |
 | `TextCorrector.swift` | Calls the Anthropic / OpenAI APIs |
-| `TextReplacer.swift` | Backspaces + types the fix as direct Unicode keystrokes (no clipboard) |
+| `TextReplacer.swift` | Backspaces, then pastes the fix and restores the clipboard |
 | `HUDController.swift` | The floating traffic‑light pill + low‑key notes |
 | `Hotkey.swift` / `ShortcutRecorder.swift` | Custom shortcut model + recorder |
 | `HistoryStore.swift` / `HistoryView.swift` | Correction log + History window |

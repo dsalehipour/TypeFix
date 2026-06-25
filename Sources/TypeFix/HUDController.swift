@@ -132,6 +132,14 @@ final class HUDController {
         scheduleHide(after: 1.4)
     }
 
+    /// Shown when the text was already correct and nothing was changed.
+    func flashAllGood() {
+        stopCountdown()
+        flashUntil = Date().addingTimeInterval(1.3)
+        show(symbol: "checkmark.seal.fill", tint: .systemGreen, spinning: false, text: "Looks good")
+        scheduleHide(after: 1.3)
+    }
+
     func hide() {
         hideTimer?.invalidate()
         hideTimer = nil

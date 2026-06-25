@@ -32,6 +32,8 @@ final class CorrectionEngine {
     var onAutoBelowThreshold: ((Int, Int) -> Void)?
     /// Fired when the user presses the "copy last original" shortcut (⌘⇧C).
     var onCopyLast: (() -> Void)?
+    /// Fired when the text was already correct and nothing was changed.
+    var onNoChange: (() -> Void)?
 
     // Manual mode
     private var manualBuffer = ""
@@ -292,6 +294,11 @@ final class CorrectionEngine {
                     self.scheduleIdle()
                     self.onAutoCountdown?(self.settings.autoDelay)
                 }
+            } else if corrected == text {
+                // Already correct — don't erase and retype; just acknowledge.
+                self.onNoChange?()
+                self.autoBuffer = ""
+                self.setState(.idle)
             } else {
                 let appName = NSWorkspace.shared.frontmostApplication?.localizedName
                 TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
@@ -323,12 +330,17 @@ final class CorrectionEngine {
 
         setState(.processing)
         runCorrection(text: text, key: key) { [weak self] corrected in
-            let appName = NSWorkspace.shared.frontmostApplication?.localizedName
-            TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
-            self?.onCorrectionApplied?(
-                CorrectionRecord(original: text, corrected: corrected, appName: appName)
-            )
-            self?.setState(.idle)
+            guard let self else { return }
+            if corrected == text {
+                self.onNoChange?()
+            } else {
+                let appName = NSWorkspace.shared.frontmostApplication?.localizedName
+                TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
+                self.onCorrectionApplied?(
+                    CorrectionRecord(original: text, corrected: corrected, appName: appName)
+                )
+            }
+            self.setState(.idle)
         }
     }
 
