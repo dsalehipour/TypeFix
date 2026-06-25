@@ -27,6 +27,15 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
 
     @Published private(set) var status: Status
 
+    /// A model whose weights are present in the on-disk cache.
+    struct DownloadedModel: Identifiable, Equatable {
+        let id: String
+        let bytes: Int64
+    }
+
+    /// Models found in the cache, with their on-disk sizes. Refreshed on demand.
+    @Published private(set) var downloadedModels: [DownloadedModel] = []
+
     /// Total expected download size, fetched from the Hub once per download.
     private var totalBytes: Int64?
     /// Polls the cache directory while a download is in flight.
@@ -62,6 +71,55 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
 
     static func downloadedKey(_ id: String) -> String { "mlxDownloaded:\(id)" }
 
+    /// Scan the cache for downloaded models and publish them (with sizes).
+    func refreshDownloadedModels() {
+        let found = Self.scanDownloadedModels()
+        if Thread.isMainThread {
+            downloadedModels = found
+        } else {
+            DispatchQueue.main.async { self.downloadedModels = found }
+        }
+    }
+
+    private static func scanDownloadedModels() -> [DownloadedModel] {
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            return []
+        }
+        let base = caches.appendingPathComponent("models", isDirectory: true)
+        let fm = FileManager.default
+        var result: [DownloadedModel] = []
+        // Layout is models/<org>/<name>.
+        let orgs = (try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        for org in orgs {
+            let names = (try? fm.contentsOfDirectory(at: org, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+            for name in names {
+                let id = org.lastPathComponent + "/" + name.lastPathComponent
+                let bytes = cacheBytes(for: id)
+                if bytes > 0 {
+                    result.append(DownloadedModel(id: id, bytes: bytes))
+                }
+            }
+        }
+        return result.sorted { $0.id < $1.id }
+    }
+
+    /// Delete a downloaded model's files and forget it, freeing disk space.
+    func deleteModel(_ modelID: String) {
+        let id = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return }
+        if let dir = Self.cacheDirectory(for: id) {
+            try? FileManager.default.removeItem(at: dir)
+        }
+        UserDefaults.standard.removeObject(forKey: Self.downloadedKey(id))
+        #if canImport(MLXLLM)
+        Task { await MLXContainerCache.shared.evict(modelID: id) }
+        #endif
+        if case .ready(let current) = status, current == id {
+            setStatus(.idle)
+        }
+        refreshDownloadedModels()
+    }
+
     /// Kick off a download + load for the given model, publishing byte progress.
     func prepare(modelID: String) {
         let id = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -89,6 +147,7 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
                 } else {
                     UserDefaults.standard.set(true, forKey: Self.downloadedKey(id))
                     self.setStatus(.ready(id))
+                    self.refreshDownloadedModels()
                 }
             } catch {
                 self.stopPolling()
@@ -211,6 +270,15 @@ actor MLXContainerCache {
     func cancel(modelID: String) {
         inFlight[modelID]?.cancel()
         inFlight[modelID] = nil
+    }
+
+    /// Drop a model from the warm cache (used after deleting its files).
+    func evict(modelID: String) {
+        inFlight[modelID]?.cancel()
+        inFlight[modelID] = nil
+        if cached?.id == modelID {
+            cached = nil
+        }
     }
 
     func container(

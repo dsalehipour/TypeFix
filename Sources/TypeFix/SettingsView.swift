@@ -57,6 +57,7 @@ struct SettingsView: View {
         .onAppear {
             apiKey = settings.apiKey ?? ""
             syncCustomModel()
+            mlx.refreshDownloadedModels()
         }
         .onChange(of: settings.provider) { _, _ in
             apiKey = settings.apiKey ?? ""
@@ -314,6 +315,30 @@ struct SettingsView: View {
                         Label("Download failed: \(message)", systemImage: "xmark.circle.fill")
                             .foregroundStyle(.red)
                         Button("Retry") { mlx.prepare(modelID: settings.model) }
+                    }
+                }
+
+                if !mlx.downloadedModels.isEmpty {
+                    Divider()
+                    Text("Downloaded models")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(mlx.downloadedModels) { model in
+                        HStack(spacing: 8) {
+                            Text(model.id)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text(Self.formatBytes(model.bytes))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Button(role: .destructive) { mlx.deleteModel(model.id) } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Delete this model to free up disk space")
+                        }
                     }
                 }
             }
