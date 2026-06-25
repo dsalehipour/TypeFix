@@ -299,6 +299,12 @@ struct SettingsView: View {
                                 .font(.subheadline.monospacedDigit())
                             ProgressView()
                         }
+                        HStack {
+                            Button("Cancel") { mlx.cancelDownload() }
+                            Text("You can resume later — partial files are kept.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 case .ready:
                     Label("Model downloaded — runs fully offline.", systemImage: "checkmark.circle.fill")

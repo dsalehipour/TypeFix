@@ -31,6 +31,10 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
     private var totalBytes: Int64?
     /// Polls the cache directory while a download is in flight.
     private var pollTimer: Timer?
+    /// The in-flight prepare/download task, so it can be cancelled.
+    private var downloadTask: Task<Void, Never>?
+    /// The model currently downloading (for cancellation cleanup).
+    private var downloadingModelID: String?
 
     private init() {
         #if canImport(MLXLLM)
@@ -69,26 +73,54 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
         }
         if case .downloading = status { return }
         totalBytes = nil
+        downloadingModelID = id
         setStatus(.downloading(receivedBytes: Self.cacheBytes(for: id), totalBytes: nil))
         startPolling(id: id)
-        Task { [weak self] in
+        downloadTask = Task { [weak self] in
             guard let self else { return }
             if let total = await Self.fetchTotalBytes(modelID: id) {
                 DispatchQueue.main.async { self.totalBytes = total }
             }
             do {
                 _ = try await MLXContainerCache.shared.container(modelID: id) { _ in }
-                UserDefaults.standard.set(true, forKey: Self.downloadedKey(id))
                 self.stopPolling()
-                self.setStatus(.ready(id))
+                if Task.isCancelled {
+                    self.setStatus(.idle)
+                } else {
+                    UserDefaults.standard.set(true, forKey: Self.downloadedKey(id))
+                    self.setStatus(.ready(id))
+                }
             } catch {
                 self.stopPolling()
-                self.setStatus(.failed(error.localizedDescription))
+                // A cancelled download (Swift cancellation or URLError.cancelled)
+                // should quietly return to idle, not show as a failure.
+                if Task.isCancelled || error is CancellationError
+                    || (error as? URLError)?.code == .cancelled {
+                    self.setStatus(.idle)
+                } else {
+                    self.setStatus(.failed(error.localizedDescription))
+                }
             }
+            self.downloadingModelID = nil
         }
         #else
         setStatus(.unsupported)
         #endif
+    }
+
+    /// Stop an in-flight download. Partial files are left in the cache so a later
+    /// download resumes instead of starting over.
+    func cancelDownload() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        stopPolling()
+        #if canImport(MLXLLM)
+        if let id = downloadingModelID {
+            Task { await MLXContainerCache.shared.cancel(modelID: id) }
+        }
+        #endif
+        downloadingModelID = nil
+        setStatus(.idle)
     }
 
     // MARK: - Byte-based progress
@@ -174,6 +206,12 @@ actor MLXContainerCache {
 
     private var cached: (id: String, container: ModelContainer)?
     private var inFlight: [String: Task<ModelContainer, Error>] = [:]
+
+    /// Cancel an in-flight load/download for a model, if any.
+    func cancel(modelID: String) {
+        inFlight[modelID]?.cancel()
+        inFlight[modelID] = nil
+    }
 
     func container(
         modelID: String,
