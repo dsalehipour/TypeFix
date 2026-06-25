@@ -35,7 +35,7 @@ including **fully on-device** options where your text never leaves your Mac.
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- Swift toolchain / Xcode command line tools (to build)
+- **Xcode** (full install) — `build.sh` builds with `xcodebuild` so MLX's Metal shaders get compiled
 - An AI backend — pick one:
   - A cloud API key from **Anthropic** or **OpenAI**, or
   - A **local** backend that keeps everything on your Mac:
@@ -101,14 +101,15 @@ different model from the dropdown.
 |--------|---------------|-------|
 | **Ollama (local server)** | [Install Ollama](https://ollama.com), run `ollama serve`, then `ollama pull qwen2.5:3b` | No API key. Works on Intel & Apple Silicon. Set the server URL (default `http://localhost:11434/v1`) and model. |
 | **Custom endpoint** | Any OpenAI-compatible local server (`llama.cpp`, LM Studio, …) | Enter its base URL and model name; optional token. |
-| **Embedded model (MLX)** | Apple Silicon | Click **Download model** in Settings (about 1–3 GB, once). Runs entirely in-app, offline. |
+| **Embedded model (MLX)** | Apple Silicon | Click **Download model** in Settings (about 1–3 GB, once). Runs entirely in-app, offline. You can **cancel** a download (it resumes later) and **delete** downloaded models to reclaim space. |
 | **Apple on-device** | macOS 26 + Apple Intelligence | Apple's built-in model. Nothing to download. Requires building with the macOS 26 SDK. |
 
-Small local models (≈0.6–4B) are quick and private but follow the "only fix the
-typing" instructions less reliably than the big cloud models. The MLX default is
-**Qwen3 4B Instruct**; **Qwen3 1.7B / 0.6B** trade quality for speed, **Llama 3.2 3B**
-is a stable fallback, and **Phi-4 mini** leans more toward reasoning. Pick a
-smaller one for more speed or a larger one for more accuracy.
+Small local models (≈1.5–4B) are quick and private but follow the "only fix the
+typing" instructions less reliably than the big cloud models. The curated MLX
+models are **non-thinking instruct** models (reasoning models that emit `<think>`
+blocks make poor autocorrectors): **Qwen3 4B Instruct** (default), **Qwen2.5 3B /
+1.5B Instruct** (smaller & faster), **Llama 3.2 3B Instruct** (stable fallback),
+and **Phi-4 mini Instruct**. You can also enter any other model id via **Other**.
 
 Note: the embedded backend can only run model **architectures** that the pinned
 `mlx-swift-examples` version implements (currently includes `qwen3`, `qwen2`,
