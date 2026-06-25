@@ -276,8 +276,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let hosting = NSHostingController(rootView: SettingsView(settings: settings))
             let window = NSWindow(contentViewController: hosting)
             window.title = "TypeFix Settings"
-            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
             window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 740, height: 580))
             window.center()
             settingsWindow = window
         }

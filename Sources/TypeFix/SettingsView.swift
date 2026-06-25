@@ -25,6 +25,7 @@ struct SettingsView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject private var mlx = MLXModelManager.shared
 
+    @State private var pane: Pane? = .behavior
     @State private var apiKey = ""
     @State private var isCustomModel = false
     @State private var launchAtLogin = LoginItem.isEnabled
@@ -39,21 +40,56 @@ struct SettingsView: View {
     private let corrector = TextCorrector()
     private let permissionTimer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                behaviorSection
-                providerSection
-                permissionSection
-                testSection
-                generalSection
-                helpSection
+    enum Pane: String, CaseIterable, Identifiable, Hashable {
+        case behavior, provider, permissions, general
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .behavior: return "Behavior"
+            case .provider: return "AI Provider"
+            case .permissions: return "Permissions"
+            case .general: return "General"
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 460, height: 640)
+
+        var subtitle: String {
+            switch self {
+            case .behavior: return "How and when TypeFix fixes your text."
+            case .provider: return "Choose where corrections run — a cloud key or a private, on-device model."
+            case .permissions: return "What TypeFix needs to work, and what it keeps private."
+            case .general: return "App preferences and a quick refresher."
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .behavior: return "slider.horizontal.3"
+            case .provider: return "cpu"
+            case .permissions: return "lock.shield"
+            case .general: return "gearshape"
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            List {
+                ForEach(Pane.allCases) { item in
+                    NavRow(pane: item, selected: pane == item) { pane = item }
+                        .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .top, spacing: 0) { sidebarBrand }
+            .navigationSplitViewColumnWidth(min: 212, ideal: 222, max: 252)
+        } detail: {
+            detail
+        }
+        .frame(minWidth: 760, idealWidth: 780, minHeight: 560, idealHeight: 600)
         .onAppear {
             apiKey = settings.apiKey ?? ""
             syncCustomModel()
@@ -67,192 +103,286 @@ struct SettingsView: View {
         .onReceive(permissionTimer) { _ in accessibilityGranted = AXIsProcessTrusted() }
     }
 
-    // MARK: - Sections
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private var sidebarBrand: some View {
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.30, green: 0.47, blue: 0.96), Color(red: 0.20, green: 0.36, blue: 0.86)], startPoint: .top, endPoint: .bottom))
+                .frame(width: 30, height: 30)
+                .overlay(
+                    Image(systemName: "keyboard.badge.ellipsis")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                )
+                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
             Text("TypeFix")
+                .font(.title3.bold())
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        let current = pane ?? .behavior
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                paneHeader(current)
+                switch current {
+                case .behavior: behaviorContent
+                case .provider: providerContent
+                case .permissions: permissionsContent
+                case .general: generalContent
+                }
+            }
+            .padding(.horizontal, 30)
+            .padding(.vertical, 26)
+            .frame(maxWidth: 660, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func paneHeader(_ pane: Pane) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(pane.title)
                 .font(.largeTitle.bold())
-            Text("Fix sloppy typing with AI, automatically when you pause or on a hotkey.")
+            Text(pane.subtitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
+        .padding(.bottom, 2)
     }
 
-    private var behaviorSection: some View {
-        GroupBox("Correction Behavior") {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Mode", selection: $settings.correctionMode) {
-                    ForEach(CorrectionMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
+    // MARK: - Reusable surfaces
 
-                if settings.correctionMode == .manual {
-                    Text("Use the trigger below to start capturing, type, then trigger again to fix.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+    @ViewBuilder
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            content()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.primary.opacity(0.07), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.05), radius: 14, y: 4)
+    }
 
-                Divider()
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.caption2.weight(.bold))
+            .tracking(0.8)
+            .foregroundStyle(.secondary)
+    }
 
-                // Auto-mode options stay visible so they can be set up in advance.
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func field<Content: View>(_ title: String, caption captionText: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            content()
+            if let captionText {
+                caption(captionText)
+            }
+        }
+    }
+
+    // MARK: - Behavior
+
+    private var behaviorContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            card {
+                sectionLabel("Correction Mode")
+                modeSelector
+                caption(settings.correctionMode == .manual
+                    ? "Use the trigger below to start capturing, type, then trigger again to fix."
+                    : "TypeFix fixes automatically a moment after you stop typing.")
+            }
+
+            card {
+                sectionLabel("Auto Mode")
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Auto mode options")
-                        .font(.subheadline.weight(.medium))
                     HStack {
                         Text("Pause before fixing")
                         Spacer()
                         Text(String(format: "%.1fs", settings.autoDelay))
-                            .font(.subheadline.monospacedDigit())
+                            .font(.body.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                     Slider(value: $settings.autoDelay, in: AppSettings.autoDelayRange, step: 0.1)
-
-                    Stepper(
-                        "Don't auto-fix until at least \(settings.autoMinChars) characters",
-                        value: $settings.autoMinChars,
-                        in: AppSettings.autoMinCharsRange
-                    )
-                    .padding(.top, 4)
-                    Text("These apply when Autofix is on: TypeFix waits for a pause and leaves fragments shorter than this alone. The hotkey still fixes any length instantly.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Trigger shortcut")
-                        .font(.subheadline.weight(.medium))
-                    HStack(spacing: 10) {
-                        ShortcutRecorder(hotkey: $settings.hotkey)
-                            .frame(height: 30)
-                            .frame(maxWidth: 220)
-                        Button("Use ⇧⇧ (default)") {
-                            settings.hotkey = .bothShifts
-                        }
-                        .disabled(settings.hotkey.useBothShifts)
-                    }
-                    Text("Click the box and press a shortcut (must include ⌘, ⌥, or ⌃). The default is both Shift keys tapped together.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Stepper(
+                    "Don't auto-fix until at least \(settings.autoMinChars) characters",
+                    value: $settings.autoMinChars,
+                    in: AppSettings.autoMinCharsRange
+                )
+                caption("Applied when Autofix is on: TypeFix waits for a pause and leaves shorter fragments alone. The hotkey still fixes any length instantly.")
             }
-            .padding(8)
+
+            card {
+                sectionLabel("Trigger Shortcut")
+                HStack(spacing: 10) {
+                    ShortcutRecorder(hotkey: $settings.hotkey)
+                        .frame(height: 30)
+                        .frame(maxWidth: 220)
+                    Button("Use ⇧⇧") { settings.hotkey = .bothShifts }
+                        .buttonStyle(SecondaryButtonStyle())
+                        .disabled(settings.hotkey.useBothShifts)
+                }
+                caption("Click the box and press a shortcut (must include ⌘, ⌥, or ⌃). The default is both Shift keys tapped together.")
+            }
         }
     }
 
-    private var providerSection: some View {
-        GroupBox("AI Provider") {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Provider", selection: $settings.provider) {
-                    Section("Cloud") {
-                        ForEach(Provider.allCases.filter { $0.kind == .cloud }) { provider in
-                            Text(provider.displayName).tag(provider)
-                        }
-                    }
-                    Section("On this Mac (private)") {
-                        ForEach(Provider.allCases.filter { $0.kind != .cloud }) { provider in
-                            Text(providerMenuLabel(provider)).tag(provider)
-                        }
+    // MARK: - AI Provider
+
+    private var providerContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            card {
+                sectionLabel("Cloud")
+                VStack(spacing: 4) {
+                    ForEach(Provider.allCases.filter { $0.kind == .cloud }) { provider in
+                        providerTile(provider)
                     }
                 }
-                .pickerStyle(.menu)
+                sectionLabel("On this Mac")
+                    .padding(.top, 4)
+                VStack(spacing: 4) {
+                    ForEach(Provider.allCases.filter { $0.kind != .cloud }) { provider in
+                        providerTile(provider)
+                    }
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: settings.provider.isLocal ? "lock.fill" : "cloud.fill")
+                        .font(.caption)
+                        .foregroundStyle(settings.provider.isLocal ? .green : .secondary)
+                    caption(settings.provider.isLocal
+                        ? "Runs on your machine — your text never leaves this device."
+                        : "Your text is sent to \(settings.provider.displayName) over HTTPS.")
+                }
+                .padding(.top, 2)
+            }
 
-                providerHint
-
+            card {
+                sectionLabel("Configuration")
                 if settings.provider.requiresAPIKey || settings.provider == .customEndpoint {
                     apiKeyField
                 }
                 if settings.provider.usesBaseURL {
                     baseURLField
                 }
-                modelField
+                if settings.provider != .appleFoundation {
+                    modelField
+                }
                 if settings.provider == .mlx {
-                    mlxSection
+                    mlxBlock
                 }
                 if settings.provider == .appleFoundation {
-                    foundationSection
+                    foundationBlock
                 }
             }
-            .padding(8)
+
+            card {
+                sectionLabel("Test Correction")
+                TextField("Type some gibberish to test", text: $testInput, axis: .vertical)
+                    .lineLimit(2...4)
+                    .fieldChrome()
+                HStack {
+                    Button(isTesting ? "Correcting…" : "Run Test") { runTest() }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(isTesting || !settings.backendReadiness.isReady)
+                    if isTesting { ProgressView().controlSize(.small) }
+                }
+                if !testOutput.isEmpty {
+                    Text(testOutput)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color(nsColor: .textBackgroundColor))
+                        )
+                }
+            }
         }
     }
 
-    private func providerMenuLabel(_ provider: Provider) -> String {
-        provider.isAvailableOnThisMac ? provider.displayName : "\(provider.displayName) (unavailable)"
+    private func providerTile(_ provider: Provider) -> some View {
+        ProviderTile(
+            provider: provider,
+            selected: settings.provider == provider,
+            available: provider.isAvailableOnThisMac,
+            tint: Self.tint(for: provider),
+            action: { settings.provider = provider }
+        )
     }
 
-    private var providerHint: some View {
-        Text(settings.provider.isLocal
-            ? "Runs on your machine — your text never leaves this device."
-            : "Your text is sent to \(settings.provider.displayName) over HTTPS.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+    static func tint(for provider: Provider) -> Color {
+        switch provider {
+        case .anthropic: return Color(red: 0.83, green: 0.42, blue: 0.30)
+        case .openai: return Color(red: 0.09, green: 0.61, blue: 0.51)
+        case .ollama: return Color(red: 0.40, green: 0.43, blue: 0.49)
+        case .customEndpoint: return Color(red: 0.36, green: 0.34, blue: 0.84)
+        case .mlx: return Color(red: 0.30, green: 0.47, blue: 0.96)
+        case .appleFoundation: return Color(red: 0.46, green: 0.48, blue: 0.53)
+        }
     }
 
     private var apiKeyField: some View {
         let isCustom = settings.provider == .customEndpoint
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(isCustom ? "API Key (optional)" : "API Key")
-                .font(.subheadline.weight(.medium))
+        return field(
+            isCustom ? "API Key (optional)" : "API Key",
+            caption: "Stored securely in your macOS Keychain."
+        ) {
             SecureField(
                 isCustom ? "Token, if your server requires one" : "Paste your \(settings.provider.displayName) API key",
                 text: $apiKey
             )
-            .textFieldStyle(.roundedBorder)
-            Text("Stored securely in your macOS Keychain.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .fieldChrome()
         }
     }
 
     private var baseURLField: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Server URL")
-                .font(.subheadline.weight(.medium))
-            TextField(settings.provider.defaultBaseURL ?? "http://localhost:1234/v1", text: $settings.baseURL)
-                .textFieldStyle(.roundedBorder)
-            Text(settings.provider == .ollama
+        field(
+            "Server URL",
+            caption: settings.provider == .ollama
                 ? "Install Ollama, run `ollama serve`, and pull a model (e.g. `ollama pull qwen2.5:3b`)."
-                : "Any OpenAI-compatible server (llama.cpp, LM Studio, etc.).")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                : "Any OpenAI-compatible server (llama.cpp, LM Studio, etc.)."
+        ) {
+            TextField(settings.provider.defaultBaseURL ?? "http://localhost:1234/v1", text: $settings.baseURL)
+                .fieldChrome()
         }
     }
 
     @ViewBuilder
     private var modelField: some View {
-        if settings.provider == .appleFoundation {
-            EmptyView()
-        } else if settings.provider == .customEndpoint {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Model")
-                    .font(.subheadline.weight(.medium))
+        if settings.provider == .customEndpoint {
+            field("Model") {
                 TextField("Model name your server exposes", text: $settings.model)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldChrome()
             }
         } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Model")
-                    .font(.subheadline.weight(.medium))
-                Picker("Model", selection: modelSelection) {
-                    ForEach(settings.provider.suggestedModels) { option in
-                        Text(option.label).tag(option.id)
-                    }
-                    Divider()
-                    Text("Other (enter a model id)…").tag(Self.customModelTag)
-                }
-                .labelsHidden()
+            field("Model", caption: isCustomModel ? modelHelpText : nil) {
+                modelDropdown
                 if isCustomModel {
                     TextField("Model id", text: $settings.model)
-                        .textFieldStyle(.roundedBorder)
-                    Text(modelHelpText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .fieldChrome()
+                        .padding(.top, 4)
                 }
             }
         }
@@ -270,110 +400,108 @@ struct SettingsView: View {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    private var mlxSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                switch mlx.status {
-                case .unsupported:
-                    Label("The embedded model needs an Apple Silicon Mac.", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                case .idle:
-                    if mlx.isModelDownloaded(settings.model) {
-                        Label("Model downloaded — runs fully offline.", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Button("Re-download model") { mlx.prepare(modelID: settings.model) }
-                    } else {
-                        Text("Downloads once (about 1–3 GB depending on the model), then runs entirely on this Mac with nothing sent online.")
-                            .font(.caption)
+    @ViewBuilder
+    private var mlxBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch mlx.status {
+            case .unsupported:
+                statusLabel("The embedded model needs an Apple Silicon Mac.", icon: "exclamationmark.triangle.fill", color: .orange)
+            case .idle:
+                if mlx.isModelDownloaded(settings.model) {
+                    statusLabel("Model downloaded — runs fully offline.", icon: "checkmark.circle.fill", color: .green)
+                    Button("Re-download model") { mlx.prepare(modelID: settings.model) }
+                        .buttonStyle(SecondaryButtonStyle())
+                } else {
+                    caption("Downloads once (about 1–3 GB depending on the model), then runs entirely on this Mac with nothing sent online.")
+                    Button("Download model") { mlx.prepare(modelID: settings.model) }
+                        .buttonStyle(PrimaryButtonStyle())
+                }
+            case .downloading(let received, let total):
+                if let total, total > 0 {
+                    let fraction = min(Double(received) / Double(total), 1.0)
+                    Text("Downloading… \(Self.formatBytes(received)) / \(Self.formatBytes(total)) (\(Int(fraction * 100))%)")
+                        .font(.subheadline.monospacedDigit())
+                    ProgressView(value: fraction)
+                } else {
+                    Text("Downloading… \(Self.formatBytes(received))")
+                        .font(.subheadline.monospacedDigit())
+                    ProgressView()
+                }
+                HStack {
+                    Button("Cancel", role: .cancel) { mlx.cancelDownload() }
+                        .buttonStyle(SecondaryButtonStyle())
+                    caption("Resumes later — partial files are kept.")
+                }
+            case .ready:
+                statusLabel("Model downloaded — runs fully offline.", icon: "checkmark.circle.fill", color: .green)
+            case .failed(let message):
+                statusLabel("Download failed: \(message)", icon: "xmark.circle.fill", color: .red)
+                Button("Retry") { mlx.prepare(modelID: settings.model) }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+
+            if !mlx.downloadedModels.isEmpty {
+                Divider()
+                sectionLabel("Downloaded models")
+                ForEach(mlx.downloadedModels) { model in
+                    HStack(spacing: 8) {
+                        Image(systemName: "shippingbox")
                             .foregroundStyle(.secondary)
-                        Button("Download model") { mlx.prepare(modelID: settings.model) }
-                    }
-                case .downloading(let received, let total):
-                    VStack(alignment: .leading, spacing: 6) {
-                        if let total, total > 0 {
-                            let fraction = min(Double(received) / Double(total), 1.0)
-                            Text("Downloading… \(Self.formatBytes(received)) / \(Self.formatBytes(total)) (\(Int(fraction * 100))%)")
-                                .font(.subheadline.monospacedDigit())
-                            ProgressView(value: fraction)
-                        } else {
-                            Text("Downloading… \(Self.formatBytes(received))")
-                                .font(.subheadline.monospacedDigit())
-                            ProgressView()
+                        Text(model.id)
+                            .font(.callout)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Text(Self.formatBytes(model.bytes))
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        Button(role: .destructive) { mlx.deleteModel(model.id) } label: {
+                            Image(systemName: "trash")
                         }
-                        HStack {
-                            Button("Cancel") { mlx.cancelDownload() }
-                            Text("You can resume later — partial files are kept.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                case .ready:
-                    Label("Model downloaded — runs fully offline.", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                case .failed(let message):
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Download failed: \(message)", systemImage: "xmark.circle.fill")
-                            .foregroundStyle(.red)
-                        Button("Retry") { mlx.prepare(modelID: settings.model) }
-                    }
-                }
-
-                if !mlx.downloadedModels.isEmpty {
-                    Divider()
-                    Text("Downloaded models")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ForEach(mlx.downloadedModels) { model in
-                        HStack(spacing: 8) {
-                            Text(model.id)
-                                .font(.caption)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer()
-                            Text(Self.formatBytes(model.bytes))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            Button(role: .destructive) { mlx.deleteModel(model.id) } label: {
-                                Image(systemName: "trash")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Delete this model to free up disk space")
-                        }
+                        .buttonStyle(.borderless)
+                        .help("Delete this model to free up disk space")
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(6)
         }
+        .padding(.top, 2)
     }
 
-    private var foundationSection: some View {
+    private var foundationBlock: some View {
         let readiness = FoundationModelsBackend.readiness()
-        return GroupBox {
-            HStack(spacing: 10) {
-                Image(systemName: readiness.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(readiness.isReady ? .green : .orange)
-                    .font(.title3)
-                Text(readiness.isReady
-                    ? "Apple's built-in on-device model is available — nothing is downloaded or sent online."
-                    : (readiness.message ?? "Unavailable."))
-                    .font(.callout)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(6)
+        return statusLabel(
+            readiness.isReady
+                ? "Apple's built-in on-device model is available — nothing is downloaded or sent online."
+                : (readiness.message ?? "Unavailable."),
+            icon: readiness.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+            color: readiness.isReady ? .green : .orange
+        )
+    }
+
+    private func statusLabel(_ text: String, icon: String, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: icon).foregroundStyle(color)
+            Text(text).font(.callout)
+            Spacer(minLength: 0)
         }
     }
 
-    private var permissionSection: some View {
-        GroupBox("Accessibility Permission") {
-            HStack(spacing: 12) {
-                Image(systemName: accessibilityGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(accessibilityGranted ? .green : .orange)
-                    .font(.title2)
+    // MARK: - Permissions
+
+    private var permissionsContent: some View {
+        card {
+            HStack(spacing: 13) {
+                ZStack {
+                    Circle()
+                        .fill((accessibilityGranted ? Color.green : Color.orange).opacity(0.15))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: accessibilityGranted ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                        .font(.title2)
+                        .foregroundStyle(accessibilityGranted ? .green : .orange)
+                }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(accessibilityGranted ? "Granted" : "Not granted")
-                        .font(.subheadline.weight(.medium))
+                    Text(accessibilityGranted ? "Accessibility granted" : "Accessibility not granted")
+                        .font(.headline)
                     Text("Required to read keystrokes and replace text.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -381,40 +509,20 @@ struct SettingsView: View {
                 Spacer()
                 if !accessibilityGranted {
                     Button("Open Settings") { openAccessibilitySettings() }
+                        .buttonStyle(PrimaryButtonStyle())
                 }
             }
-            .padding(8)
+            Divider()
+            caption("TypeFix only reads text during an active correction, stores nothing beyond your local history, and — with a local provider — sends nothing online.")
         }
     }
 
-    private var testSection: some View {
-        GroupBox("Test Correction") {
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Type some gibberish to test", text: $testInput, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(2...4)
-                HStack {
-                    Button(isTesting ? "Correcting…" : "Run Test") { runTest() }
-                        .disabled(isTesting || !settings.backendReadiness.isReady)
-                    if isTesting { ProgressView().controlSize(.small) }
-                }
-                if !testOutput.isEmpty {
-                    Text(testOutput)
-                        .font(.callout)
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-            }
-            .padding(8)
-        }
-    }
+    // MARK: - General
 
-    private var generalSection: some View {
-        GroupBox("General") {
-            VStack(alignment: .leading, spacing: 10) {
+    private var generalContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            card {
+                sectionLabel("Startup")
                 Toggle("Launch at login", isOn: Binding(
                     get: { launchAtLogin },
                     set: { newValue in
@@ -422,49 +530,111 @@ struct SettingsView: View {
                         LoginItem.set(newValue)
                     }
                 ))
+                .toggleStyle(.switch)
             }
-            .padding(8)
+
+            card {
+                sectionLabel("How It Works")
+                VStack(alignment: .leading, spacing: 10) {
+                    if settings.correctionMode == .auto {
+                        helpRow("1.circle.fill", "Just type normally in any app.")
+                        helpRow("2.circle.fill", "Pause briefly, and your text is auto-corrected in place.")
+                        helpRow("3.circle.fill", "Or tap both Shift keys to fix immediately.")
+                        helpRow("exclamationmark.circle.fill", "Clicking, arrow keys, Enter, or Tab cancel a pending fix.")
+                    } else {
+                        helpRow("1.circle.fill", "Tap Left Shift + Right Shift together to begin capturing.")
+                        helpRow("2.circle.fill", "Type normally; your text appears as usual.")
+                        helpRow("3.circle.fill", "Tap both Shift keys again to replace it with the fix.")
+                        helpRow("escape", "Press Esc while capturing to cancel.")
+                    }
+                }
+            }
         }
     }
 
-    private var helpSection: some View {
-        GroupBox("How it works") {
-            VStack(alignment: .leading, spacing: 6) {
-                if settings.correctionMode == .auto {
-                    Label("Just type normally in any app.", systemImage: "1.circle")
-                    Label("Pause briefly, and your text is auto-corrected in place.", systemImage: "2.circle")
-                    Label("Or tap both Shift keys to fix immediately.", systemImage: "3.circle")
-                    Label("Clicking, arrow keys, Enter, or Tab cancel a pending fix.", systemImage: "exclamationmark.circle")
-                } else {
-                    Label("Tap Left Shift + Right Shift together to begin capturing.", systemImage: "1.circle")
-                    Label("Type normally; your text appears as usual.", systemImage: "2.circle")
-                    Label("Tap both Shift keys again to replace it with the fix.", systemImage: "3.circle")
-                    Label("Press Esc while capturing to cancel.", systemImage: "escape")
-                }
-            }
-            .font(.callout)
-            .padding(8)
+    private func helpRow(_ icon: String, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Image(systemName: icon)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 18)
+            Text(text)
+            Spacer(minLength: 0)
         }
+        .font(.callout)
     }
 
-    // MARK: - Model selection
+    // MARK: - Custom controls
 
-    private var modelSelection: Binding<String> {
-        Binding(
-            get: {
-                if isCustomModel { return Self.customModelTag }
-                let ids = settings.provider.suggestedModels.map(\.id)
-                return ids.contains(settings.model) ? settings.model : Self.customModelTag
-            },
-            set: { newValue in
-                if newValue == Self.customModelTag {
-                    isCustomModel = true
-                } else {
-                    isCustomModel = false
-                    settings.model = newValue
+    private var modeSelector: some View {
+        HStack(spacing: 4) {
+            ForEach(CorrectionMode.allCases) { mode in
+                let selected = settings.correctionMode == mode
+                Button { settings.correctionMode = mode } label: {
+                    Text(mode.shortName)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selected ? .primary : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(selected ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                                .shadow(color: selected ? .black.opacity(0.12) : .clear, radius: 2, y: 1)
+                        )
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
         )
+    }
+
+    private var currentModelLabel: String {
+        if isCustomModel {
+            return settings.model.isEmpty ? "Other…" : settings.model
+        }
+        if let match = settings.provider.suggestedModels.first(where: { $0.id == settings.model }) {
+            return match.label
+        }
+        return settings.model.isEmpty ? "Select a model" : settings.model
+    }
+
+    private var modelDropdown: some View {
+        Menu {
+            ForEach(settings.provider.suggestedModels) { option in
+                Button {
+                    isCustomModel = false
+                    settings.model = option.id
+                } label: {
+                    if !isCustomModel && settings.model == option.id {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+            Divider()
+            Button("Other (enter a model id)…") { isCustomModel = true }
+        } label: {
+            HStack(spacing: 8) {
+                Text(currentModelLabel)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(DropdownButtonStyle())
+        .menuIndicator(.hidden)
     }
 
     private func syncCustomModel() {
@@ -498,5 +668,137 @@ struct SettingsView: View {
     private func openAccessibilitySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
+    }
+}
+
+/// A modern sidebar nav item with a rounded accent-tinted selection and hover.
+private struct NavRow: View {
+    let pane: SettingsView.Pane
+    let selected: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: pane.icon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(selected ? Color.accentColor : .secondary)
+                    .frame(width: 22)
+                Text(pane.title)
+                    .font(.body.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selected
+                        ? Color.accentColor.opacity(0.16)
+                        : (hovering ? Color.primary.opacity(0.06) : Color.clear))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
+/// A dropdown that reads as a clear, tappable field (used with `.menuStyle(.button)`).
+private struct DropdownButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StyleBody(configuration: configuration)
+    }
+
+    private struct StyleBody: View {
+        let configuration: ButtonStyle.Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.body)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(
+                            hovering ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.14),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: .black.opacity(0.04), radius: 1, y: 1)
+                .opacity(configuration.isPressed ? 0.85 : 1)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.1), value: hovering)
+        }
+    }
+}
+
+/// A premium, selectable provider row with a gradient icon chip and hover state.
+private struct ProviderTile: View {
+    let provider: Provider
+    let selected: Bool
+    let available: Bool
+    let tint: Color
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 13) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(LinearGradient(colors: [tint, tint.opacity(0.72)], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 30, height: 30)
+                    .overlay(
+                        Image(systemName: provider.symbolName)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                    )
+                    .shadow(color: tint.opacity(0.35), radius: 3, y: 1)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(provider.displayName)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Text(provider.shortDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                if !available {
+                    Text("Unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else if selected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(tint)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(selected ? tint.opacity(0.14) : (hovering ? Color.primary.opacity(0.05) : Color.clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(selected ? tint.opacity(0.45) : Color.clear, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .opacity(available ? 1 : 0.55)
+        .onHover { hovering = $0 }
     }
 }

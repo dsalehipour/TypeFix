@@ -12,6 +12,13 @@ enum CorrectionMode: String, CaseIterable, Identifiable {
         case .manual: return "Manual (double-Shift to start & stop)"
         }
     }
+
+    var shortName: String {
+        switch self {
+        case .auto: return "Auto"
+        case .manual: return "Manual"
+        }
+    }
 }
 
 /// How a provider runs, which drives gating and the Settings UI.
@@ -119,6 +126,30 @@ enum Provider: String, CaseIterable, Identifiable {
             ]
         case .customEndpoint, .appleFoundation:
             return []
+        }
+    }
+
+    /// SF Symbol used for the provider's row in Settings.
+    var symbolName: String {
+        switch self {
+        case .anthropic: return "a.circle.fill"
+        case .openai: return "o.circle.fill"
+        case .ollama: return "server.rack"
+        case .customEndpoint: return "network"
+        case .mlx: return "memorychip.fill"
+        case .appleFoundation: return "apple.logo"
+        }
+    }
+
+    /// One-line description shown under the provider name in Settings.
+    var shortDescription: String {
+        switch self {
+        case .anthropic: return "Claude models · cloud"
+        case .openai: return "GPT models · cloud"
+        case .ollama: return "Local server on your Mac"
+        case .customEndpoint: return "Your own OpenAI-compatible server"
+        case .mlx: return "Runs in-app, fully offline"
+        case .appleFoundation: return "Apple Intelligence · on-device"
         }
     }
 

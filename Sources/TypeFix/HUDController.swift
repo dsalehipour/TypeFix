@@ -1,19 +1,34 @@
 import AppKit
+import SwiftUI
+
+/// Observable state for the floating HUD capsule.
+private final class HUDModel: ObservableObject {
+    @Published var symbol: String?
+    @Published var tint: Color = .secondary
+    @Published var text: String = ""
+    @Published var spinning: Bool = false
+    /// Render a glowing colored dot (traffic-light states) instead of a symbol.
+    @Published var useDot: Bool = false
+}
 
 /// A small floating, non-activating overlay that shows TypeFix's activity.
 ///
 /// In Auto mode it acts like a traffic light:
 ///   🟢 green  — you're typing
 ///   🟡 yellow — counting down (about to fix), shows the remaining seconds
-///   🔴 red    — thinking (calling the API), with a spinner
+///   🔴 red    — thinking (calling the model), with a spinner
 ///
 /// It never becomes key and never activates the app, so it does not steal focus
-/// from the field you're typing into.
+/// from the field you're typing into. Rendered as a modern translucent capsule.
 final class HUDController {
+    private let model = HUDModel()
+    private let noteModel = HUDModel()
+
     private var panel: NSPanel?
-    private let iconView = NSImageView()
-    private let spinner = NSProgressIndicator()
-    private let label = NSTextField(labelWithString: "")
+    private var hostingView: NSHostingView<HUDContent>?
+
+    private var notePanel: NSPanel?
+    private var noteHostingView: NSHostingView<HUDNoteContent>?
 
     private var hideTimer: Timer?
     private var flashUntil: Date?
@@ -22,15 +37,10 @@ final class HUDController {
     private var countdownDeadline: Date?
     private var countdownTotal: TimeInterval = 1.5
 
+    private var noteHideTimer: Timer?
+
     /// Symbol shown in the manual "Recording" message; set by the app before `update`.
     var hotkeySymbol: String = "⇧⇧"
-
-    // A separate, deliberately smaller/dimmer pill for low-importance notes
-    // (e.g. "too short to fix") so it reads as clearly different from the main HUD.
-    private var notePanel: NSPanel?
-    private let noteLabel = NSTextField(labelWithString: "")
-    private let noteIcon = NSImageView()
-    private var noteHideTimer: Timer?
 
     private enum Light {
         case green, yellow, red
@@ -57,24 +67,21 @@ final class HUDController {
             switch mode {
             case .manual:
                 stopCountdown()
-                show(symbol: "record.circle", tint: .systemRed, spinning: false,
+                show(symbol: "record.circle.fill", tint: .systemRed, spinning: false,
                      text: "Recording · \(hotkeySymbol) to fix")
             case .auto:
-                // The countdown timer drives the green/yellow display; only paint a
-                // green light here if a countdown isn't already running.
                 if countdownDeadline == nil {
                     showLight(.green, text: "Typing…")
                 }
             }
         case .processing:
             stopCountdown()
-            show(symbol: "circle.fill", tint: .systemRed, spinning: true, text: "Thinking…")
+            show(symbol: nil, tint: .systemRed, spinning: true, text: "Thinking…")
         }
     }
 
     // MARK: - Auto countdown (green → yellow)
 
-    /// Called on each Auto-mode keystroke; (re)starts the visual countdown.
     func beginCountdown(total: TimeInterval) {
         countdownTotal = max(total, 0.1)
         countdownDeadline = Date().addingTimeInterval(countdownTotal)
@@ -95,11 +102,11 @@ final class HUDController {
         let elapsed = countdownTotal - remaining
 
         if remaining <= 0 {
-            showLight(.yellow, text: "Fixing…", fixedWidth: 180)
+            showLight(.yellow, text: "Fixing…")
         } else if elapsed < 0.3 {
-            showLight(.green, text: "Typing…", fixedWidth: 180)
+            showLight(.green, text: "Typing…")
         } else {
-            showLight(.yellow, text: String(format: "Fixing in %.1fs", remaining), fixedWidth: 180)
+            showLight(.yellow, text: String(format: "Fixing in %.1fs", remaining))
         }
     }
 
@@ -144,18 +151,16 @@ final class HUDController {
         hideTimer?.invalidate()
         hideTimer = nil
         flashUntil = nil
-        spinner.stopAnimation(nil)
+        model.spinning = false
         panel?.orderOut(nil)
     }
 
     // MARK: - Low-importance note (visually distinct)
 
-    /// Quietly note that the text is too short to auto-fix yet.
     func flashTooShort(count: Int, threshold: Int) {
         showNote("Too short to fix · \(count)/\(threshold)")
     }
 
-    /// A low-importance grey note for transient information.
     func flashInfo(_ text: String) {
         showNote(text)
     }
@@ -163,18 +168,9 @@ final class HUDController {
     private func showNote(_ text: String) {
         stopCountdown()
         hide() // clear the main pill; the note replaces it
-        let panel = notePanelOrCreate()
-        noteLabel.stringValue = text
-
-        panel.layoutIfNeeded()
-        let fitting = panel.contentView?.fittingSize ?? NSSize(width: 150, height: 24)
-        panel.setContentSize(NSSize(width: max(fitting.width, 120), height: 26))
-        if let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 50))
-        }
-        panel.alphaValue = 0.92
-        panel.orderFrontRegardless()
+        _ = notePanelOrCreate()
+        noteModel.text = text
+        layoutAndShow(notePanel, hostingView: noteHostingView, bottomInset: 50)
 
         noteHideTimer?.invalidate()
         noteHideTimer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: false) { [weak self] _ in
@@ -188,108 +184,21 @@ final class HUDController {
         notePanel?.orderOut(nil)
     }
 
-    private func notePanelOrCreate() -> NSPanel {
-        if let notePanel { return notePanel }
-
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 150, height: 26),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.level = .statusBar
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.ignoresMouseEvents = true
-        panel.hasShadow = false // softer than the main pill
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-
-        let content = panel.contentView!
-
-        let effect = NSVisualEffectView()
-        effect.translatesAutoresizingMaskIntoConstraints = false
-        effect.material = .popover // different material than the main HUD
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 9
-        effect.layer?.masksToBounds = true
-        content.addSubview(effect)
-
-        noteIcon.translatesAutoresizingMaskIntoConstraints = false
-        noteIcon.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
-        noteIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
-        noteIcon.contentTintColor = .tertiaryLabelColor
-        noteIcon.setContentHuggingPriority(.required, for: .horizontal)
-
-        noteLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        noteLabel.textColor = .secondaryLabelColor
-        noteLabel.lineBreakMode = .byTruncatingTail
-        noteLabel.maximumNumberOfLines = 1
-        noteLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = NSStackView(views: [noteIcon, noteLabel])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 5
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            effect.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            effect.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            effect.topAnchor.constraint(equalTo: content.topAnchor),
-            effect.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 11),
-            stack.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -11),
-            stack.centerYAnchor.constraint(equalTo: effect.centerYAnchor),
-        ])
-
-        self.notePanel = panel
-        return panel
-    }
-
     // MARK: - Rendering
 
-    private func showLight(_ light: Light, text: String, fixedWidth: CGFloat? = nil) {
-        show(symbol: "circle.fill", tint: light.color, spinning: false, text: text, fixedWidth: fixedWidth)
+    private func showLight(_ light: Light, text: String) {
+        show(symbol: "circle.fill", tint: light.color, spinning: false, text: text)
     }
 
-    private func show(symbol: String?, tint: NSColor?, spinning: Bool, text: String, fixedWidth: CGFloat? = nil) {
-        let panel = panelOrCreate()
-
-        label.stringValue = text
-        if let symbol {
-            iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            iconView.contentTintColor = tint
-            iconView.isHidden = false
-        } else {
-            iconView.isHidden = true
-        }
-        if spinning {
-            spinner.startAnimation(nil)
-        } else {
-            spinner.stopAnimation(nil)
-        }
-        spinner.isHidden = !spinning
-
-        let width: CGFloat
-        if let fixedWidth {
-            width = fixedWidth
-        } else {
-            panel.layoutIfNeeded()
-            let fitting = panel.contentView?.fittingSize ?? NSSize(width: 200, height: 44)
-            width = max(fitting.width, 130)
-        }
-        panel.setContentSize(NSSize(width: width, height: 44))
-
-        if let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + 50))
-        }
-        panel.orderFrontRegardless()
+    private func show(symbol: String?, tint: NSColor?, spinning: Bool, text: String) {
+        _ = panelOrCreate()
+        let isDot = (symbol == "circle.fill") && !spinning
+        model.text = text
+        model.spinning = spinning
+        model.useDot = isDot
+        model.symbol = isDot ? nil : symbol
+        if let tint { model.tint = Color(nsColor: tint) }
+        layoutAndShow(panel, hostingView: hostingView, bottomInset: 58)
     }
 
     private func scheduleHide(after seconds: TimeInterval) {
@@ -299,11 +208,25 @@ final class HUDController {
         }
     }
 
-    private func panelOrCreate() -> NSPanel {
-        if let panel { return panel }
+    // MARK: - Panels
 
+    private func layoutAndShow<V: View>(_ panel: NSPanel?, hostingView: NSHostingView<V>?, bottomInset: CGFloat) {
+        guard let panel, let hostingView else { return }
+        hostingView.layoutSubtreeIfNeeded()
+        let size = hostingView.fittingSize
+        if abs(panel.frame.width - size.width) > 0.5 || abs(panel.frame.height - size.height) > 0.5 {
+            panel.setContentSize(size)
+        }
+        if let screen = NSScreen.main {
+            let visible = screen.visibleFrame
+            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + bottomInset))
+        }
+        panel.orderFrontRegardless()
+    }
+
+    private func makePanel(size: NSSize) -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 180, height: 44),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -314,56 +237,94 @@ final class HUDController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.ignoresMouseEvents = true
-        panel.hasShadow = true
+        panel.hasShadow = false // the SwiftUI capsule draws its own shadow
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        return panel
+    }
 
-        let content = panel.contentView!
-
-        let effect = NSVisualEffectView()
-        effect.translatesAutoresizingMaskIntoConstraints = false
-        effect.material = .hudWindow
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
-        effect.layer?.masksToBounds = true
-        content.addSubview(effect)
-
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        iconView.setContentHuggingPriority(.required, for: .horizontal)
-        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.setContentHuggingPriority(.required, for: .horizontal)
-
-        label.font = .systemFont(ofSize: 13, weight: .medium)
-        label.textColor = .labelColor
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 1
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = NSStackView(views: [iconView, spinner, label])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            effect.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            effect.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            effect.topAnchor.constraint(equalTo: content.topAnchor),
-            effect.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: effect.trailingAnchor, constant: -16),
-            stack.centerYAnchor.constraint(equalTo: effect.centerYAnchor),
-        ])
-
+    @discardableResult
+    private func panelOrCreate() -> NSPanel {
+        if let panel { return panel }
+        let hosting = NSHostingView(rootView: HUDContent(model: model))
+        let panel = makePanel(size: hosting.fittingSize)
+        panel.contentView = hosting
+        self.hostingView = hosting
         self.panel = panel
         return panel
+    }
+
+    @discardableResult
+    private func notePanelOrCreate() -> NSPanel {
+        if let notePanel { return notePanel }
+        let hosting = NSHostingView(rootView: HUDNoteContent(model: noteModel))
+        let panel = makePanel(size: hosting.fittingSize)
+        panel.contentView = hosting
+        self.noteHostingView = hosting
+        self.notePanel = panel
+        return panel
+    }
+}
+
+// MARK: - SwiftUI capsules
+
+private struct HUDContent: View {
+    @ObservedObject var model: HUDModel
+
+    var body: some View {
+        HStack(spacing: 9) {
+            glyph
+            Text(model.text)
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .fixedSize()
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 9)
+        .background(Capsule(style: .continuous).fill(.regularMaterial))
+        .overlay(Capsule(style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
+        .padding(16)
+        .fixedSize()
+    }
+
+    @ViewBuilder private var glyph: some View {
+        if model.spinning {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.8)
+                .frame(width: 14, height: 14)
+        } else if model.useDot {
+            Circle()
+                .fill(model.tint)
+                .frame(width: 9, height: 9)
+                .shadow(color: model.tint.opacity(0.85), radius: 3)
+        } else if let symbol = model.symbol {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(model.tint)
+        }
+    }
+}
+
+private struct HUDNoteContent: View {
+    @ObservedObject var model: HUDModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            Text(model.text)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(Capsule(style: .continuous).fill(.ultraThinMaterial))
+        .overlay(Capsule(style: .continuous).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+        .padding(12)
+        .fixedSize()
     }
 }

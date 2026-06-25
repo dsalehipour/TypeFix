@@ -18,16 +18,18 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 18) {
                     beforeAfter
                     howItWorks
                     setup
                 }
-                .padding(24)
+                .padding(22)
+                .frame(maxWidth: .infinity)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
             footer
         }
-        .frame(width: 540, height: 680)
+        .frame(width: 560, height: 720)
         .onAppear(perform: refreshStatus)
         .onReceive(refreshTimer) { _ in refreshStatus() }
     }
@@ -40,24 +42,33 @@ struct OnboardingView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "keyboard.badge.ellipsis")
-                .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(.white)
+        VStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.white.opacity(0.18))
+                .frame(width: 64, height: 64)
+                .overlay(
+                    Image(systemName: "keyboard.badge.ellipsis")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(.white)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+                )
             Text("Welcome to TypeFix")
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(.white)
             Text("Type fast and sloppy, and let AI fix it right where you're typing.")
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(.white.opacity(0.92))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
+        .padding(.vertical, 30)
         .padding(.horizontal, 24)
         .background(
             LinearGradient(
-                colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
+                colors: [Color.accentColor, Color.accentColor.opacity(0.68)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -67,76 +78,86 @@ struct OnboardingView: View {
     // MARK: - Before / after
 
     private var beforeAfter: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("See it in action")
-            VStack(alignment: .leading, spacing: 10) {
-                labeledExample(
+        AppCard {
+            SectionLabel("See it in action")
+            VStack(alignment: .leading, spacing: 8) {
+                example(
                     tag: "YOU TYPE",
+                    icon: "keyboard",
                     text: "whjkat m,ios th best thign swe dcan do to incmprve our converospn rates.",
-                    color: .secondary,
-                    icon: "keyboard"
+                    prominent: false
                 )
                 Image(systemName: "arrow.down")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Color.accentColor)
                     .frame(maxWidth: .infinity)
-                labeledExample(
+                example(
                     tag: "TYPEFIX WRITES",
+                    icon: "sparkles",
                     text: "What is the best thing we can do to improve our conversion rates?",
-                    color: .primary,
-                    icon: "sparkles"
+                    prominent: true
                 )
             }
-            .padding(14)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 
-    private func labeledExample(tag: String, text: String, color: Color, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func example(tag: String, icon: String, text: String, prominent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
             Label(tag, systemImage: icon)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(prominent ? Color.accentColor : .secondary)
             Text(text)
-                .font(.system(size: 14, weight: color == .primary ? .semibold : .regular))
-                .foregroundStyle(color)
+                .font(.system(size: 14, weight: prominent ? .semibold : .regular))
+                .foregroundStyle(prominent ? .primary : .secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(prominent ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(prominent ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.06), lineWidth: 1)
+        )
     }
 
     // MARK: - How it works
 
     private var howItWorks: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("How to use it")
-            step(
-                icon: "hand.tap",
-                title: "Manual: tap \(hotkeySymbol)",
-                detail: "Tap your shortcut, type, then tap it again. TypeFix rewrites what you typed."
-            )
-            step(
-                icon: "wand.and.stars",
-                title: "Autofix: fix on a pause",
-                detail: "Turn on Autofix from the menu bar and it fixes automatically a moment after you stop typing."
-            )
-            step(
-                icon: "doc.on.doc",
-                title: "Recover anything: ⌘⇧C",
-                detail: "Press ⌘⇧C (or use the menu) to copy the original text of the last fix, in case a correction wasn't what you wanted."
-            )
+        AppCard {
+            SectionLabel("How to use it")
+            VStack(alignment: .leading, spacing: 14) {
+                step(
+                    icon: "hand.tap.fill",
+                    tint: Color(red: 0.30, green: 0.47, blue: 0.96),
+                    title: "Manual: tap \(hotkeySymbol)",
+                    detail: "Tap your shortcut, type, then tap it again. TypeFix rewrites what you typed."
+                )
+                step(
+                    icon: "wand.and.stars",
+                    tint: Color(red: 0.55, green: 0.38, blue: 0.92),
+                    title: "Autofix: fix on a pause",
+                    detail: "Turn on Autofix from the menu bar and it fixes automatically a moment after you stop typing."
+                )
+                step(
+                    icon: "doc.on.doc.fill",
+                    tint: Color(red: 0.09, green: 0.61, blue: 0.51),
+                    title: "Recover anything: ⌘⇧C",
+                    detail: "Press ⌘⇧C (or use the menu) to copy the original text of the last fix, in case a correction wasn't what you wanted."
+                )
+            }
         }
     }
 
-    private func step(icon: String, title: String, detail: String) -> some View {
+    private func step(icon: String, tint: Color, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 26)
+            IconChip(systemName: icon, tint: tint, size: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold))
                 Text(detail).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -144,8 +165,8 @@ struct OnboardingView: View {
     // MARK: - Setup
 
     private var setup: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("Two quick things to set up")
+        AppCard {
+            SectionLabel("Two quick things to set up")
             setupRow(
                 number: 1,
                 done: accessibilityGranted,
@@ -153,17 +174,15 @@ struct OnboardingView: View {
                 buttonTitle: "Open",
                 action: onOpenAccessibility
             )
+            Divider()
             setupRow(
                 number: 2,
                 done: backendReady,
-                text: "Choose your AI backend in Settings — a **cloud key** (Anthropic / OpenAI) or a **private, on-device** model.",
+                text: "Choose your AI backend — a **cloud key** (Anthropic / OpenAI) or a **private, on-device** model.",
                 buttonTitle: "Settings",
                 action: onOpenSettings
             )
         }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func setupRow(
@@ -173,20 +192,34 @@ struct OnboardingView: View {
         buttonTitle: String,
         action: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: done ? "checkmark.circle.fill" : "\(number).circle.fill")
-                .font(.system(size: 17))
-                .foregroundStyle(done ? Color.green : Color.accentColor)
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(done ? Color.green.opacity(0.16) : Color.accentColor.opacity(0.14))
+                    .frame(width: 28, height: 28)
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.green)
+                } else {
+                    Text("\(number)")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
             Text(text)
                 .font(.callout)
                 .foregroundStyle(done ? .secondary : .primary)
-            Spacer()
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
             if done {
                 Label("Done", systemImage: "checkmark")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.green)
+                    .labelStyle(.titleOnly)
             } else {
                 Button(buttonTitle, action: action)
+                    .buttonStyle(SecondaryButtonStyle())
             }
         }
         .animation(.default, value: done)
@@ -196,20 +229,15 @@ struct OnboardingView: View {
 
     private var footer: some View {
         HStack {
-            Text("You can reopen this from the menu: How TypeFix works…")
+            Text("Reopen this anytime from the menu: How TypeFix works…")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Get Started", action: onDone)
+                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .controlSize(.large)
         }
         .padding(16)
         .background(.bar)
-    }
-
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.headline)
     }
 }
