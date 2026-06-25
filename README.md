@@ -166,7 +166,7 @@ pause** straight from the menu).
 ### Auto
 
 1. Just type normally.
-2. Stop for a moment (default **1.5s**, adjustable). TypeFix fixes the chunk in place.
+2. Stop for a moment (default **2s**, adjustable). TypeFix fixes the chunk in place.
 3. Watch the on‑screen pill: 🟢 *Typing* → 🟡 *Fixing in 0.8s* → 🔴 *Thinking* → ✓ *Fixed*.
 
 - Your shortcut does an instant **fix now** in Auto mode.
