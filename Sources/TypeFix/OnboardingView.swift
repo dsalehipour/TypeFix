@@ -10,7 +10,7 @@ struct OnboardingView: View {
     var onDone: () -> Void
 
     @State private var accessibilityGranted = AXIsProcessTrusted()
-    @State private var hasAPIKey = false
+    @State private var backendReady = false
 
     private let refreshTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
@@ -34,7 +34,7 @@ struct OnboardingView: View {
 
     private func refreshStatus() {
         accessibilityGranted = AXIsProcessTrusted()
-        hasAPIKey = !(settings.apiKey ?? "").isEmpty
+        backendReady = settings.backendReadiness.isReady
     }
 
     // MARK: - Header
@@ -155,8 +155,8 @@ struct OnboardingView: View {
             )
             setupRow(
                 number: 2,
-                done: hasAPIKey,
-                text: "Add your **Anthropic or OpenAI** API key in Settings.",
+                done: backendReady,
+                text: "Choose your AI backend in Settings — a **cloud key** (Anthropic / OpenAI) or a **private, on-device** model.",
                 buttonTitle: "Settings",
                 action: onOpenSettings
             )

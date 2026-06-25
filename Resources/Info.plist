@@ -24,5 +24,10 @@
     <string>NSApplication</string>
     <key>NSHumanReadableCopyright</key>
     <string>TypeFix</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>

@@ -14,9 +14,21 @@ enum CorrectionMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// How a provider runs, which drives gating and the Settings UI.
+enum ProviderKind {
+    case cloud        // remote API, needs a key
+    case localServer  // OpenAI-compatible server on this machine/network
+    case embedded     // model runs in-process (MLX)
+    case system       // Apple's built-in on-device model
+}
+
 enum Provider: String, CaseIterable, Identifiable {
     case anthropic
     case openai
+    case ollama
+    case customEndpoint
+    case mlx
+    case appleFoundation
 
     var id: String { rawValue }
 
@@ -24,6 +36,36 @@ enum Provider: String, CaseIterable, Identifiable {
         switch self {
         case .anthropic: return "Anthropic"
         case .openai: return "OpenAI"
+        case .ollama: return "Ollama (local server)"
+        case .customEndpoint: return "Custom endpoint"
+        case .mlx: return "Embedded model (MLX)"
+        case .appleFoundation: return "Apple on-device"
+        }
+    }
+
+    var kind: ProviderKind {
+        switch self {
+        case .anthropic, .openai: return .cloud
+        case .ollama, .customEndpoint: return .localServer
+        case .mlx: return .embedded
+        case .appleFoundation: return .system
+        }
+    }
+
+    /// True when corrections happen on the user's own machine (nothing sent online).
+    var isLocal: Bool { kind != .cloud }
+
+    /// Cloud providers require a key; the custom endpoint may take an optional one.
+    var requiresAPIKey: Bool { kind == .cloud }
+
+    /// OpenAI-compatible servers need a base URL.
+    var usesBaseURL: Bool { kind == .localServer }
+
+    var defaultBaseURL: String? {
+        switch self {
+        case .ollama: return "http://localhost:11434/v1"
+        case .customEndpoint: return "http://localhost:1234/v1"
+        case .anthropic, .openai, .mlx, .appleFoundation: return nil
         }
     }
 
@@ -31,10 +73,16 @@ enum Provider: String, CaseIterable, Identifiable {
         switch self {
         case .anthropic: return "claude-sonnet-4-6"
         case .openai: return "gpt-5.4-mini"
+        case .ollama: return "qwen2.5:3b"
+        case .customEndpoint: return ""
+        case .mlx: return "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+        case .appleFoundation: return ""
         }
     }
 
-    /// Curated, current model ids offered in the Settings dropdown.
+    /// Curated model ids offered in the Settings dropdown. Empty means the UI
+    /// shows a free-text field (custom endpoint) or no model picker at all
+    /// (Apple's on-device model has a single built-in model).
     var suggestedModels: [ModelOption] {
         switch self {
         case .anthropic:
@@ -50,6 +98,79 @@ enum Provider: String, CaseIterable, Identifiable {
                 ModelOption(id: "gpt-5.5", label: "GPT-5.5 (most capable)"),
                 ModelOption(id: "gpt-5.4-nano", label: "GPT-5.4 nano (cheapest)"),
             ]
+        case .ollama:
+            return [
+                ModelOption(id: "qwen2.5:3b", label: "Qwen2.5 3B (balanced, recommended)"),
+                ModelOption(id: "llama3.2:3b", label: "Llama 3.2 3B"),
+                ModelOption(id: "qwen2.5:1.5b", label: "Qwen2.5 1.5B (fastest)"),
+                ModelOption(id: "gemma2:2b", label: "Gemma 2 2B"),
+            ]
+        case .mlx:
+            // Text-only mlx-lm builds whose architectures mlx-swift-examples 2.29.1
+            // actually implements (qwen3 / qwen2 / llama / phi3). Newer architectures
+            // like qwen3_5 download but fail to load ("Unsupported model type").
+            return [
+                ModelOption(id: "mlx-community/Qwen3-4B-Instruct-2507-4bit", label: "Qwen3 4B Instruct (recommended, ~2.3 GB)"),
+                ModelOption(id: "mlx-community/Qwen3-1.7B-4bit", label: "Qwen3 1.7B (faster, ~1 GB)"),
+                ModelOption(id: "mlx-community/Qwen3-0.6B-4bit", label: "Qwen3 0.6B (fastest, ~0.4 GB, lower quality)"),
+                ModelOption(id: "mlx-community/Llama-3.2-3B-Instruct-4bit", label: "Llama 3.2 3B (stable fallback)"),
+                ModelOption(id: "mlx-community/Phi-4-mini-instruct-4bit", label: "Phi-4 mini (reasoning-leaning)"),
+            ]
+        case .customEndpoint, .appleFoundation:
+            return []
+        }
+    }
+
+    /// Whether this provider can be used on the current Mac (independent of
+    /// per-provider setup like keys or downloads).
+    var isAvailableOnThisMac: Bool {
+        switch self {
+        case .anthropic, .openai, .ollama, .customEndpoint:
+            return true
+        case .mlx:
+            #if canImport(MLXLLM)
+            return PlatformInfo.isAppleSilicon
+            #else
+            return false
+            #endif
+        case .appleFoundation:
+            #if canImport(FoundationModels)
+            if #available(macOS 26, *) { return true }
+            return false
+            #else
+            return false
+            #endif
+        }
+    }
+
+    /// Whether the provider is set up enough to attempt a correction.
+    func readiness(apiKey: String, baseURL: String, model: String) -> BackendReadiness {
+        switch self {
+        case .anthropic, .openai:
+            return apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .needsSetup("Add your \(displayName) API key in Settings.")
+                : .ready
+        case .ollama:
+            // Reachability is verified when a correction is attempted.
+            return model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .needsSetup("Choose an Ollama model in Settings.")
+                : .ready
+        case .customEndpoint:
+            if baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .needsSetup("Enter your server's base URL in Settings.")
+            }
+            return model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .needsSetup("Enter the model name in Settings.")
+                : .ready
+        case .mlx:
+            guard isAvailableOnThisMac else {
+                return .needsSetup("The embedded model needs an Apple Silicon Mac.")
+            }
+            return MLXModelManager.shared.isModelDownloaded(model)
+                ? .ready
+                : .needsSetup("Download the embedded model in Settings.")
+        case .appleFoundation:
+            return FoundationModelsBackend.readiness()
         }
     }
 }
@@ -80,6 +201,7 @@ final class AppSettings: ObservableObject {
     private enum Keys {
         static let provider = "provider"
         static let model = "model"
+        static let baseURL = "baseURL"
         static let correctionMode = "correctionMode"
         static let autoDelay = "autoDelay"
         static let autoMinChars = "autoMinChars"
@@ -96,16 +218,32 @@ final class AppSettings: ObservableObject {
             // When switching providers, jump to the new provider's default model
             // unless the user has typed a genuinely custom model name.
             let isOtherProvidersDefault = Provider.allCases.contains {
-                $0 != provider && $0.defaultModel == model
+                $0 != provider && !$0.defaultModel.isEmpty && $0.defaultModel == model
             }
             if model.isEmpty || isOtherProvidersDefault {
                 model = provider.defaultModel
+            }
+            // Likewise, reset the base URL to the new provider's default unless the
+            // user has entered a genuinely custom one.
+            if provider.usesBaseURL {
+                let trimmedBase = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                let isOtherProvidersDefaultURL = Provider.allCases.contains {
+                    $0 != provider && $0.usesBaseURL && $0.defaultBaseURL == trimmedBase
+                }
+                if trimmedBase.isEmpty || isOtherProvidersDefaultURL {
+                    baseURL = provider.defaultBaseURL ?? ""
+                }
             }
         }
     }
 
     @Published var model: String {
         didSet { defaults.set(model, forKey: Keys.model) }
+    }
+
+    /// Base URL for OpenAI-compatible local servers (Ollama / custom endpoints).
+    @Published var baseURL: String {
+        didSet { defaults.set(baseURL, forKey: Keys.baseURL) }
     }
 
     @Published var correctionMode: CorrectionMode {
@@ -135,6 +273,7 @@ final class AppSettings: ObservableObject {
         let storedProvider = defaults.string(forKey: Keys.provider).flatMap(Provider.init(rawValue:)) ?? .anthropic
         self.provider = storedProvider
         self.model = defaults.string(forKey: Keys.model) ?? storedProvider.defaultModel
+        self.baseURL = defaults.string(forKey: Keys.baseURL) ?? (storedProvider.defaultBaseURL ?? "")
         // Default to Manual (explicit double-Shift). Auto is opt-in.
         self.correctionMode = defaults.string(forKey: Keys.correctionMode)
             .flatMap(CorrectionMode.init(rawValue:)) ?? .manual
@@ -196,5 +335,27 @@ final class AppSettings: ObservableObject {
             keyCache[account] = trimmed
         }
         keyCacheLoaded.insert(account)
+    }
+
+    /// The base URL to use for the current provider, falling back to its default.
+    var effectiveBaseURL: String {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return provider.defaultBaseURL ?? ""
+    }
+
+    /// Whether the selected provider is configured enough to attempt a correction.
+    var backendReadiness: BackendReadiness {
+        provider.readiness(apiKey: apiKey ?? "", baseURL: effectiveBaseURL, model: model)
+    }
+
+    /// A thread-safe snapshot of the settings needed to perform one correction.
+    func makeCorrectionConfig() -> CorrectionConfig {
+        CorrectionConfig(
+            provider: provider,
+            model: model.trimmingCharacters(in: .whitespacesAndNewlines),
+            apiKey: apiKey ?? "",
+            baseURL: effectiveBaseURL
+        )
     }
 }

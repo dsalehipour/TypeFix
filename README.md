@@ -11,7 +11,8 @@ you get:    What is the best thing we can do to improve our conversion rates?
 ```
 
 It runs quietly in the menu bar (no Dock icon), works in any text field, and
-never sends your keystrokes anywhere except the AI provider *you* configure.
+never sends your keystrokes anywhere except the AI provider *you* configure —
+including **fully on-device** options where your text never leaves your Mac.
 
 ---
 
@@ -26,13 +27,21 @@ never sends your keystrokes anywhere except the AI provider *you* configure.
 - **Minimum‑length threshold** — don't bother fixing tiny fragments; a small, quiet note tells you why.
 - **History** — see every original → corrected pair and copy your original back if you ever want it. Nothing is lost.
 - **Bring your own key** — Anthropic or OpenAI, stored in the macOS Keychain.
+- **Or stay fully private** — run a local model so nothing leaves your Mac: a local
+  server (Ollama / llama.cpp / LM Studio), an embedded model via Apple **MLX**, or
+  Apple's built-in **on-device** model.
 - **Clean replacement** — pastes the fix in place (bypassing the target app's autocorrect/auto-period), then restores your clipboard.
 
 ## Requirements
 
 - macOS 14 (Sonoma) or later
 - Swift toolchain / Xcode command line tools (to build)
-- An API key from **Anthropic** or **OpenAI**
+- An AI backend — pick one:
+  - A cloud API key from **Anthropic** or **OpenAI**, or
+  - A **local** backend that keeps everything on your Mac:
+    - **Ollama** (or any OpenAI-compatible local server) — works on Intel & Apple Silicon
+    - **Embedded (MLX)** — downloads a small model once, then runs offline (Apple Silicon only)
+    - **Apple on-device** — Apple's built-in model (requires macOS 26 + Apple Intelligence; build with the macOS 26 SDK)
 
 ## Install
 
@@ -66,14 +75,17 @@ corrected text back.
 The icon turns from a warning triangle into a keyboard once granted — no relaunch
 needed.
 
-## Add your API key
+## Choose your AI backend
 
 1. Menu‑bar icon → **Settings…**
-2. Choose **Anthropic** or **OpenAI** and paste your API key (stored in the Keychain).
-3. Optionally change the model, then press **Run Test** to confirm it works.
+2. Under **AI Provider**, pick one. The list is grouped into **Cloud** and
+   **On this Mac (private)**.
+3. Press **Run Test** to confirm it works.
 
-Pick a model from the dropdown, or choose **Other** to type any model id your
-provider supports.
+### Cloud (bring your own key)
+
+Choose **Anthropic** or **OpenAI**, paste your API key (stored in the Keychain),
+and pick a model from the dropdown (or **Other** for any model id).
 
 | Provider  | Default model        | Also available |
 |-----------|----------------------|----------------|
@@ -82,6 +94,27 @@ provider supports.
 
 Model ids change over time. If the API returns a "model not found" error, pick a
 different model from the dropdown.
+
+### Local — nothing leaves your Mac
+
+| Option | What it needs | Notes |
+|--------|---------------|-------|
+| **Ollama (local server)** | [Install Ollama](https://ollama.com), run `ollama serve`, then `ollama pull qwen2.5:3b` | No API key. Works on Intel & Apple Silicon. Set the server URL (default `http://localhost:11434/v1`) and model. |
+| **Custom endpoint** | Any OpenAI-compatible local server (`llama.cpp`, LM Studio, …) | Enter its base URL and model name; optional token. |
+| **Embedded model (MLX)** | Apple Silicon | Click **Download model** in Settings (about 1–3 GB, once). Runs entirely in-app, offline. |
+| **Apple on-device** | macOS 26 + Apple Intelligence | Apple's built-in model. Nothing to download. Requires building with the macOS 26 SDK. |
+
+Small local models (≈0.6–4B) are quick and private but follow the "only fix the
+typing" instructions less reliably than the big cloud models. The MLX default is
+**Qwen3 4B Instruct**; **Qwen3 1.7B / 0.6B** trade quality for speed, **Llama 3.2 3B**
+is a stable fallback, and **Phi-4 mini** leans more toward reasoning. Pick a
+smaller one for more speed or a larger one for more accuracy.
+
+Note: the embedded backend can only run model **architectures** that the pinned
+`mlx-swift-examples` version implements (currently includes `qwen3`, `qwen2`,
+`llama`, `phi3`, `gemma`, etc.). A brand-new architecture (e.g. `qwen3_5`) will
+download but fail to load with "Unsupported model type" until the dependency is
+bumped. Stick to text-only `mlx-lm` builds (no vision models).
 
 ## Using it
 
@@ -120,7 +153,10 @@ pause** straight from the menu).
 
 ## Privacy & security
 
-- The text you capture is sent **only** to the AI provider you choose. Don't capture secrets you don't want leaving your machine.
+- The text you capture is sent **only** to the AI backend you choose. With a
+  **local** backend (Ollama / custom endpoint / embedded MLX / Apple on-device),
+  nothing leaves your Mac at all.
+- With a cloud provider, don't capture secrets you don't want leaving your machine.
 - Your API key is stored in the login **Keychain** (service `com.typefix.app`), never in plain text.
 - History is stored locally on your machine (capped to the last 300 entries).
 
@@ -130,7 +166,12 @@ pause** straight from the menu).
 |------|----------------|
 | `KeyEventTap.swift` | Active `CGEventTap`: shortcut detection, continuous capture, boundary detection |
 | `CorrectionEngine.swift` | State machine for Manual + Auto (pause) modes |
-| `TextCorrector.swift` | Calls the Anthropic / OpenAI APIs |
+| `TextCorrector.swift` | Routes a correction to the selected backend |
+| `CorrectionSupport.swift` | Shared prompt, output cleanup, HTTP helpers, backend protocol |
+| `AnthropicBackend.swift` / `OpenAIBackend.swift` | Cloud providers |
+| `OpenAICompatibleBackend.swift` | Ollama + custom local OpenAI-compatible servers |
+| `MLXBackend.swift` | Embedded on-device model (Apple MLX) + download manager |
+| `FoundationModelsBackend.swift` | Apple's built-in on-device model (macOS 26+) |
 | `TextReplacer.swift` | Backspaces, then pastes the fix and restores the clipboard |
 | `HUDController.swift` | The floating traffic‑light pill + low‑key notes |
 | `Hotkey.swift` / `ShortcutRecorder.swift` | Custom shortcut model + recorder |

@@ -23,6 +23,7 @@ enum LoginItem {
 
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
+    @ObservedObject private var mlx = MLXModelManager.shared
 
     @State private var apiKey = ""
     @State private var isCustomModel = false
@@ -147,43 +148,189 @@ struct SettingsView: View {
         GroupBox("AI Provider") {
             VStack(alignment: .leading, spacing: 12) {
                 Picker("Provider", selection: $settings.provider) {
-                    ForEach(Provider.allCases) { provider in
-                        Text(provider.displayName).tag(provider)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("API Key")
-                        .font(.subheadline.weight(.medium))
-                    SecureField("Paste your \(settings.provider.displayName) API key", text: $apiKey)
-                        .textFieldStyle(.roundedBorder)
-                    Text("Stored securely in your macOS Keychain.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Model")
-                        .font(.subheadline.weight(.medium))
-                    Picker("Model", selection: modelSelection) {
-                        ForEach(settings.provider.suggestedModels) { option in
-                            Text(option.label).tag(option.id)
+                    Section("Cloud") {
+                        ForEach(Provider.allCases.filter { $0.kind == .cloud }) { provider in
+                            Text(provider.displayName).tag(provider)
                         }
-                        Divider()
-                        Text("Other (enter a model id)…").tag(Self.customModelTag)
                     }
-                    .labelsHidden()
-                    if isCustomModel {
-                        TextField("Model id", text: $settings.model)
-                            .textFieldStyle(.roundedBorder)
-                        Text("Enter any model id your provider supports.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Section("On this Mac (private)") {
+                        ForEach(Provider.allCases.filter { $0.kind != .cloud }) { provider in
+                            Text(providerMenuLabel(provider)).tag(provider)
+                        }
                     }
+                }
+                .pickerStyle(.menu)
+
+                providerHint
+
+                if settings.provider.requiresAPIKey || settings.provider == .customEndpoint {
+                    apiKeyField
+                }
+                if settings.provider.usesBaseURL {
+                    baseURLField
+                }
+                modelField
+                if settings.provider == .mlx {
+                    mlxSection
+                }
+                if settings.provider == .appleFoundation {
+                    foundationSection
                 }
             }
             .padding(8)
+        }
+    }
+
+    private func providerMenuLabel(_ provider: Provider) -> String {
+        provider.isAvailableOnThisMac ? provider.displayName : "\(provider.displayName) (unavailable)"
+    }
+
+    private var providerHint: some View {
+        Text(settings.provider.isLocal
+            ? "Runs on your machine — your text never leaves this device."
+            : "Your text is sent to \(settings.provider.displayName) over HTTPS.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private var apiKeyField: some View {
+        let isCustom = settings.provider == .customEndpoint
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(isCustom ? "API Key (optional)" : "API Key")
+                .font(.subheadline.weight(.medium))
+            SecureField(
+                isCustom ? "Token, if your server requires one" : "Paste your \(settings.provider.displayName) API key",
+                text: $apiKey
+            )
+            .textFieldStyle(.roundedBorder)
+            Text("Stored securely in your macOS Keychain.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var baseURLField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Server URL")
+                .font(.subheadline.weight(.medium))
+            TextField(settings.provider.defaultBaseURL ?? "http://localhost:1234/v1", text: $settings.baseURL)
+                .textFieldStyle(.roundedBorder)
+            Text(settings.provider == .ollama
+                ? "Install Ollama, run `ollama serve`, and pull a model (e.g. `ollama pull qwen2.5:3b`)."
+                : "Any OpenAI-compatible server (llama.cpp, LM Studio, etc.).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var modelField: some View {
+        if settings.provider == .appleFoundation {
+            EmptyView()
+        } else if settings.provider == .customEndpoint {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Model")
+                    .font(.subheadline.weight(.medium))
+                TextField("Model name your server exposes", text: $settings.model)
+                    .textFieldStyle(.roundedBorder)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Model")
+                    .font(.subheadline.weight(.medium))
+                Picker("Model", selection: modelSelection) {
+                    ForEach(settings.provider.suggestedModels) { option in
+                        Text(option.label).tag(option.id)
+                    }
+                    Divider()
+                    Text("Other (enter a model id)…").tag(Self.customModelTag)
+                }
+                .labelsHidden()
+                if isCustomModel {
+                    TextField("Model id", text: $settings.model)
+                        .textFieldStyle(.roundedBorder)
+                    Text(modelHelpText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var modelHelpText: String {
+        switch settings.provider {
+        case .ollama: return "Any model you've pulled with `ollama pull`."
+        case .mlx: return "Any 4-bit MLX-community model id from Hugging Face."
+        default: return "Enter any model id your provider supports."
+        }
+    }
+
+    private static func formatBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private var mlxSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                switch mlx.status {
+                case .unsupported:
+                    Label("The embedded model needs an Apple Silicon Mac.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                case .idle:
+                    if mlx.isModelDownloaded(settings.model) {
+                        Label("Model downloaded — runs fully offline.", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Button("Re-download model") { mlx.prepare(modelID: settings.model) }
+                    } else {
+                        Text("Downloads once (about 1–3 GB depending on the model), then runs entirely on this Mac with nothing sent online.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Download model") { mlx.prepare(modelID: settings.model) }
+                    }
+                case .downloading(let received, let total):
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let total, total > 0 {
+                            let fraction = min(Double(received) / Double(total), 1.0)
+                            Text("Downloading… \(Self.formatBytes(received)) / \(Self.formatBytes(total)) (\(Int(fraction * 100))%)")
+                                .font(.subheadline.monospacedDigit())
+                            ProgressView(value: fraction)
+                        } else {
+                            Text("Downloading… \(Self.formatBytes(received))")
+                                .font(.subheadline.monospacedDigit())
+                            ProgressView()
+                        }
+                    }
+                case .ready:
+                    Label("Model downloaded — runs fully offline.", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                case .failed(let message):
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Download failed: \(message)", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                        Button("Retry") { mlx.prepare(modelID: settings.model) }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        }
+    }
+
+    private var foundationSection: some View {
+        let readiness = FoundationModelsBackend.readiness()
+        return GroupBox {
+            HStack(spacing: 10) {
+                Image(systemName: readiness.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(readiness.isReady ? .green : .orange)
+                    .font(.title3)
+                Text(readiness.isReady
+                    ? "Apple's built-in on-device model is available — nothing is downloaded or sent online."
+                    : (readiness.message ?? "Unavailable."))
+                    .font(.callout)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
         }
     }
 
@@ -217,7 +364,7 @@ struct SettingsView: View {
                     .lineLimit(2...4)
                 HStack {
                     Button(isTesting ? "Correcting…" : "Run Test") { runTest() }
-                        .disabled(isTesting || apiKey.isEmpty)
+                        .disabled(isTesting || !settings.backendReadiness.isReady)
                     if isTesting { ProgressView().controlSize(.small) }
                 }
                 if !testOutput.isEmpty {
@@ -299,13 +446,11 @@ struct SettingsView: View {
     private func runTest() {
         isTesting = true
         testOutput = ""
-        let provider = settings.provider
-        let model = settings.model
-        let key = settings.apiKey ?? ""
+        let config = settings.makeCorrectionConfig()
         let input = testInput
         Task {
             do {
-                let result = try await corrector.correct(input, provider: provider, apiKey: key, model: model)
+                let result = try await corrector.correct(input, config: config)
                 await MainActor.run {
                     testOutput = result
                     isTesting = false

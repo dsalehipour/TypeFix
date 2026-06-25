@@ -271,10 +271,10 @@ final class CorrectionEngine {
             return
         }
 
-        guard let key = settings.apiKey, !key.isEmpty else {
+        if case .needsSetup(let message) = settings.backendReadiness {
             autoBuffer = ""
             setState(.idle)
-            onError?("No API key set. Open Settings and paste your \(settings.provider.displayName) API key.")
+            onError?(message)
             return
         }
 
@@ -282,7 +282,7 @@ final class CorrectionEngine {
         typedDuringProcessing = false
         setState(.processing)
 
-        runCorrection(text: text, key: key) { [weak self] corrected in
+        runCorrection(text: text) { [weak self] corrected in
             guard let self else { return }
             if self.typedDuringProcessing {
                 // The user kept typing or moved the cursor while we waited.
@@ -322,14 +322,14 @@ final class CorrectionEngine {
             setState(.idle)
             return
         }
-        guard let key = settings.apiKey, !key.isEmpty else {
+        if case .needsSetup(let message) = settings.backendReadiness {
             setState(.idle)
-            onError?("No API key set. Open Settings and paste your \(settings.provider.displayName) API key.")
+            onError?(message)
             return
         }
 
         setState(.processing)
-        runCorrection(text: text, key: key) { [weak self] corrected in
+        runCorrection(text: text) { [weak self] corrected in
             guard let self else { return }
             if corrected == text {
                 self.onNoChange?()
@@ -346,15 +346,12 @@ final class CorrectionEngine {
 
     // MARK: - Shared
 
-    private func runCorrection(text: String, key: String, onSuccess: @escaping (String) -> Void) {
-        let provider = settings.provider
-        let model = settings.model
+    private func runCorrection(text: String, onSuccess: @escaping (String) -> Void) {
+        let config = settings.makeCorrectionConfig()
         Task { [weak self] in
             guard let self else { return }
             do {
-                let corrected = try await self.corrector.correct(
-                    text, provider: provider, apiKey: key, model: model
-                )
+                let corrected = try await self.corrector.correct(text, config: config)
                 await MainActor.run { onSuccess(corrected) }
             } catch {
                 await MainActor.run {

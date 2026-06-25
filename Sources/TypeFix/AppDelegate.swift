@@ -171,10 +171,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let notice: String?
         if !trusted {
             notice = "Grant Accessibility to start →"
-        } else if (settings.apiKey ?? "").isEmpty {
-            notice = "Add your API key in Settings →"
         } else {
-            notice = nil
+            switch settings.backendReadiness {
+            case .ready:
+                notice = nil
+            case .needsSetup(let message):
+                notice = message + " →"
+            }
         }
         if let notice {
             noticeItem.attributedTitle = NSAttributedString(
