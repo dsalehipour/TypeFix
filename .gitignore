@@ -4,3 +4,7 @@
 TypeFix.app/
 *.xcodeproj
 .DS_Store
+
+# Distributable disk image (build artifact)
+*.dmg
+.dmg-staging/

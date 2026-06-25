@@ -17,6 +17,14 @@
   <b>fully on‑device</b>, so your words never leave your Mac.
 </p>
 
+<p align="center">
+  <a href="https://github.com/dsalehipour/typefix/releases/latest">
+    <img src="https://img.shields.io/github/v/release/dsalehipour/typefix?label=Download%20for%20macOS&color=4c6ef5&style=for-the-badge" alt="Download for macOS">
+  </a>
+  <br>
+  <sub>Apple Silicon · macOS 14+</sub>
+</p>
+
 ---
 
 ## A quick look
@@ -79,23 +87,33 @@
 
 ## Install
 
+### Download (recommended)
+
+1. Get the latest **[TypeFix.dmg from Releases](https://github.com/dsalehipour/typefix/releases/latest)**.
+2. Open the `.dmg` and drag **TypeFix** onto **Applications**.
+3. In Applications, **right‑click TypeFix → Open**, then click **Open**.
+   If macOS still blocks it: **System Settings → Privacy & Security → "Open Anyway."**
+
+> This one‑time step is only needed because the app is **self‑signed**, not
+> notarized by Apple. Requires **macOS 14+** on an **Apple Silicon** Mac.
+
+A caret icon appears in the menu bar (TypeFix has no Dock icon).
+
+### Build from source
+
 ```bash
 # 1. Create a stable local signing identity (once) so the Accessibility
 #    permission survives rebuilds.
 ./setup-signing.sh
 
-# 2. Build the app bundle.
+# 2. Build the app bundle (uses xcodebuild to compile MLX's Metal shaders).
 ./build.sh release
 
 # 3. Launch it.
 open TypeFix.app
 ```
 
-A keyboard icon appears in the menu bar.
-
-> Because the app is signed with a **self‑signed** identity (not notarized), the
-> first launch from Finder may need a right‑click → **Open**, or approval under
-> System Settings → Privacy & Security.
+To produce a shareable disk image, run `./package.sh` (creates `TypeFix.dmg`).
 
 ## Grant permission
 
