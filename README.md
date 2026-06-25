@@ -1,18 +1,46 @@
 # TypeFix
 
-A macOS menu‑bar app that fixes your fast, sloppy typing with an LLM.
+**Type fast and sloppy — TypeFix rewrites it into what you meant, in place, in any app.**
 
-Type as fast as you want — even total gibberish — then let TypeFix figure out
-what you *meant* and rewrite it in place, right where your cursor is, in any app.
+<p align="center">
+  <img src="docs/images/hero.png" alt="TypeFix turns mistyped text into clean text" width="820">
+</p>
 
-```
-you type:   whjkat m,ios th best thign swe dcan do to incmprve our converospn rates.
-you get:    What is the best thing we can do to improve our conversion rates?
-```
+<p align="center">
+  Lives quietly in your menu bar. Bring your own cloud key — or run a model
+  <b>fully on‑device</b>, so your words never leave your Mac.
+</p>
 
-It runs quietly in the menu bar (no Dock icon), works in any text field, and
-never sends your keystrokes anywhere except the AI provider *you* configure —
-including **fully on-device** options where your text never leaves your Mac.
+---
+
+## A quick look
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/menubar.png" alt="TypeFix in the menu bar" width="100%"><br>
+      <b>One tap from the menu bar</b><br>
+      No Dock icon. Autofix when you pause, or fix on your shortcut.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/hud.png" alt="Text fixed in place with a Fixed confirmation" width="100%"><br>
+      <b>Fixed right where you type</b><br>
+      A quiet pill confirms it — your text, cleaned in place.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/private.png" alt="Runs privately on-device" width="100%"><br>
+      <b>Private by design</b><br>
+      Run locally with MLX or Ollama — nothing leaves your Mac.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/settings.png" alt="Choose a cloud or local AI provider" width="100%"><br>
+      <b>Your AI, your choice</b><br>
+      A cloud key or a local model — switch anytime in Settings.
+    </td>
+  </tr>
+</table>
 
 ---
 
