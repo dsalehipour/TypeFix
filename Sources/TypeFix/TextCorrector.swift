@@ -21,14 +21,22 @@ final class TextCorrector {
     mistake (e.g. "[er"→"per").
     - Also fix words that came out as the WRONG word from a slip, using context \
     (e.g. "tit"→"it", "walw"→"want", "thign"→"thing", "swe"→"we", "arc"→"card", \
-    "oer"→"per", "neeig"→"needing", "aut"→"auto").
+    "oer"→"per", "neeig"→"needing", "aut"→"auto", "scrubsrice"→"subscribe", \
+    "hcannel"→"channel").
+    - Read the WHOLE sentence's meaning to work out each intended word. Decode a \
+    garbled word into the real, ordinary word that best fits the sentence. Do NOT \
+    keep a nonsense word, and do NOT capitalize an unrecognized garbled word as if \
+    it were a name or brand — only treat something as a proper noun when it clearly \
+    is one.
     - Correct the WHOLE text no matter how long. Never return the text unchanged if \
     it still contains typos or wrong words.
     - Do NOT rephrase, reword, reorder, summarize, translate, expand abbreviations, \
     or change the meaning. Keep the user's wording, tone, and casual shorthand.
     - Spacing: add a missing space between run-together words, but NEVER delete a \
     space that belongs between words and NEVER merge two separate words ("also clear" \
-    stays two words, not "alsoclear").
+    stays two words, not "alsoclear"). When splitting a run-together word, pick the \
+    grammatically correct split for the context (e.g. "signinto" before a verb → \
+    "sign in to", not "sign into"; "alot" → "a lot").
     - Punctuation & capitalization: keep what the user typed. Do NOT insert periods \
     or other punctuation in the MIDDLE of a sentence. You may add a single terminal \
     "." or "?" only if the sentence clearly needs one. Capitalize sentence starts \
@@ -45,6 +53,9 @@ final class TextCorrector {
 
     Input: a specific arc the user wanted to monitor, the alerts oer card can be diff, thresholds [er card
     Output: a specific card the user wanted to monitor, the alerts per card can be diff, thresholds per card
+
+    Input: signinto scrubsrice to this hcannel
+    Output: sign in to subscribe to this channel
     """
 
     func correct(_ text: String, provider: Provider, apiKey: String, model: String) async throws -> String {
