@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         copyLastItem.target = self
         copyLastItem.image = menuSymbol("doc.on.doc")
         copyLastItem.keyEquivalent = "c"
-        copyLastItem.keyEquivalentModifierMask = [.command, .shift]
+        copyLastItem.keyEquivalentModifierMask = [.command, .shift, .option]
         copyLastItem.toolTip = "Copy the original text of the most recent fix, in case the correction wasn't what you wanted."
         menu.addItem(copyLastItem)
 

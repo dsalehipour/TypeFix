@@ -144,8 +144,8 @@ struct OnboardingView: View {
                 step(
                     icon: "doc.on.doc.fill",
                     tint: Color(red: 0.09, green: 0.61, blue: 0.51),
-                    title: "Recover anything: ⌘⇧C",
-                    detail: "Press ⌘⇧C (or use the menu) to copy the original text of the last fix, in case a correction wasn't what you wanted."
+                    title: "Recover anything: ⌥⇧⌘C",
+                    detail: "Press ⌥⇧⌘C (or use the menu) to copy the original text of the last fix, in case a correction wasn't what you wanted."
                 )
             }
         }

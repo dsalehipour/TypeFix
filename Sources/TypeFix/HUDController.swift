@@ -170,7 +170,7 @@ final class HUDController {
         hide() // clear the main pill; the note replaces it
         _ = notePanelOrCreate()
         noteModel.text = text
-        layoutAndShow(notePanel, hostingView: noteHostingView, bottomInset: 50)
+        layoutAndShow(notePanel, hostingView: noteHostingView, pillPadding: 22)
 
         noteHideTimer?.invalidate()
         noteHideTimer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: false) { [weak self] _ in
@@ -198,7 +198,7 @@ final class HUDController {
         model.useDot = isDot
         model.symbol = isDot ? nil : symbol
         if let tint { model.tint = Color(nsColor: tint) }
-        layoutAndShow(panel, hostingView: hostingView, bottomInset: 58)
+        layoutAndShow(panel, hostingView: hostingView, pillPadding: 32)
     }
 
     private func scheduleHide(after seconds: TimeInterval) {
@@ -210,7 +210,11 @@ final class HUDController {
 
     // MARK: - Panels
 
-    private func layoutAndShow<V: View>(_ panel: NSPanel?, hostingView: NSHostingView<V>?, bottomInset: CGFloat) {
+    /// Anchors the pill to the bottom-right of the screen. `pillPadding` is the
+    /// transparent margin baked into the SwiftUI content (so the shadow isn't
+    /// clipped); we subtract it so the visible capsule sits the desired gap from
+    /// the screen edges.
+    private func layoutAndShow<V: View>(_ panel: NSPanel?, hostingView: NSHostingView<V>?, pillPadding: CGFloat) {
         guard let panel, let hostingView else { return }
         hostingView.layoutSubtreeIfNeeded()
         let size = hostingView.fittingSize
@@ -219,7 +223,11 @@ final class HUDController {
         }
         if let screen = NSScreen.main {
             let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.midX - panel.frame.width / 2, y: visible.minY + bottomInset))
+            let rightGap: CGFloat = 22
+            let bottomGap: CGFloat = 22
+            let x = visible.maxX - panel.frame.width + (pillPadding - rightGap)
+            let y = visible.minY + (bottomGap - pillPadding)
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
         panel.orderFrontRegardless()
     }
@@ -282,8 +290,10 @@ private struct HUDContent: View {
         .padding(.vertical, 9)
         .background(Capsule(style: .continuous).fill(.regularMaterial))
         .overlay(Capsule(style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
-        .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
-        .padding(16)
+        .shadow(color: .black.opacity(0.22), radius: 12, y: 4)
+        // Generous transparent margin so the shadow fully fades before the
+        // (rectangular) panel edge — otherwise the shadow looks clipped.
+        .padding(32)
         .fixedSize()
     }
 
@@ -324,7 +334,7 @@ private struct HUDNoteContent: View {
         .background(Capsule(style: .continuous).fill(.ultraThinMaterial))
         .overlay(Capsule(style: .continuous).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
         .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-        .padding(12)
+        .padding(22)
         .fixedSize()
     }
 }

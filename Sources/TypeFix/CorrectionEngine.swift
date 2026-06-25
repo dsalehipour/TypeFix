@@ -30,7 +30,7 @@ final class CorrectionEngine {
     /// Fired (Auto mode) when a pause fires but the text is below the minimum
     /// length: (currentCount, threshold).
     var onAutoBelowThreshold: ((Int, Int) -> Void)?
-    /// Fired when the user presses the "copy last original" shortcut (⌘⇧C).
+    /// Fired when the user presses the "copy last original" shortcut (⌥⇧⌘C).
     var onCopyLast: (() -> Void)?
     /// Fired when the text was already correct and nothing was changed.
     var onNoChange: (() -> Void)?

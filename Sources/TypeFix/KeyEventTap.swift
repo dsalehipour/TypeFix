@@ -128,7 +128,7 @@ final class KeyEventTap {
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
         guard keyCode == 8 else { return false } // 'c'
         let relevant: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
-        return event.flags.intersection(relevant) == [.maskCommand, .maskShift]
+        return event.flags.intersection(relevant) == [.maskCommand, .maskShift, .maskAlternate]
     }
 
     private func isHotkeyComboMatch(_ event: CGEvent) -> Bool {
