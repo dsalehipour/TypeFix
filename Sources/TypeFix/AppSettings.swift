@@ -106,15 +106,16 @@ enum Provider: String, CaseIterable, Identifiable {
                 ModelOption(id: "gemma2:2b", label: "Gemma 2 2B"),
             ]
         case .mlx:
-            // Text-only mlx-lm builds whose architectures mlx-swift-examples 2.29.1
-            // actually implements (qwen3 / qwen2 / llama / phi3). Newer architectures
+            // Non-thinking instruct models whose architectures mlx-swift-examples
+            // 2.29.1 implements (qwen3 / qwen2 / llama / phi3). Reasoning models that
+            // emit <think> blocks make poor autocorrectors, and newer architectures
             // like qwen3_5 download but fail to load ("Unsupported model type").
             return [
                 ModelOption(id: "mlx-community/Qwen3-4B-Instruct-2507-4bit", label: "Qwen3 4B Instruct (recommended, ~2.3 GB)"),
-                ModelOption(id: "mlx-community/Qwen3-1.7B-4bit", label: "Qwen3 1.7B (faster, ~1 GB)"),
-                ModelOption(id: "mlx-community/Qwen3-0.6B-4bit", label: "Qwen3 0.6B (fastest, ~0.4 GB, lower quality)"),
-                ModelOption(id: "mlx-community/Llama-3.2-3B-Instruct-4bit", label: "Llama 3.2 3B (stable fallback)"),
-                ModelOption(id: "mlx-community/Phi-4-mini-instruct-4bit", label: "Phi-4 mini (reasoning-leaning)"),
+                ModelOption(id: "mlx-community/Qwen2.5-3B-Instruct-4bit", label: "Qwen2.5 3B Instruct (~1.7 GB)"),
+                ModelOption(id: "mlx-community/Qwen2.5-1.5B-Instruct-4bit", label: "Qwen2.5 1.5B Instruct (faster, ~0.9 GB)"),
+                ModelOption(id: "mlx-community/Llama-3.2-3B-Instruct-4bit", label: "Llama 3.2 3B Instruct (stable fallback)"),
+                ModelOption(id: "mlx-community/Phi-4-mini-instruct-4bit", label: "Phi-4 mini Instruct (~2.3 GB)"),
             ]
         case .customEndpoint, .appleFoundation:
             return []

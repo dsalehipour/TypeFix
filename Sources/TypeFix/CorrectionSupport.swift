@@ -109,12 +109,23 @@ enum CorrectionText {
         "\"", "'", "`", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}",
     ]
 
+    /// Reasoning models (e.g. some Qwen3 variants) emit a `<think>…</think>`
+    /// block before their answer. Keep only the text after the final closing tag.
+    private static func stripThinking(_ text: String) -> String {
+        let lower = text.lowercased()
+        guard lower.contains("<think>"), let closeRange = lower.range(of: "</think>", options: .backwards) else {
+            return text
+        }
+        let afterIndex = text.index(text.startIndex, offsetBy: text.distance(from: lower.startIndex, to: closeRange.upperBound))
+        return String(text[afterIndex...])
+    }
+
     /// Trims whitespace and removes only the wrapping quotes the model ADDED
     /// beyond what the user actually typed (so quotes you meant to type survive),
     /// then restores the exact leading/trailing whitespace from the original so an
     /// in-place replacement doesn't run into adjacent text.
     static func clean(_ text: String, original: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = stripThinking(text).trimmingCharacters(in: .whitespacesAndNewlines)
         let originalTrimmed = original.trimmingCharacters(in: .whitespacesAndNewlines)
 
         func leadingQuotes(_ string: String) -> Int {

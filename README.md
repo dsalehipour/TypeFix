@@ -182,10 +182,15 @@ pause** straight from the menu).
 ## Development
 
 ```bash
-swift build            # debug build
-swift run TypeFix      # run without bundling (Accessibility may not persist)
-./build.sh release     # produce the signed .app
+swift build            # quick compile check (no Metal shaders — local MLX models won't run)
+./build.sh release     # produce the signed .app via xcodebuild
 ```
+
+`./build.sh` uses **xcodebuild**, not `swift build`, because the embedded MLX
+backend needs its compiled Metal shader library (`default.metallib`). A plain
+`swift build` doesn't compile the Metal kernels, so a model would crash on load;
+`build.sh` compiles them and copies the result next to the binary as
+`mlx.metallib`. Use `swift build` only for fast type-checking.
 
 ### Why the self‑signed identity?
 
