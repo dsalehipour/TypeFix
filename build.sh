@@ -50,6 +50,7 @@ cp "$BIN_PATH" "$APP/Contents/MacOS/$BIN_NAME"
 # MLX loads its Metal shader library colocated with the binary as `mlx.metallib`.
 cp "$METALLIB" "$APP/Contents/MacOS/mlx.metallib"
 cp "Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 if security find-identity -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
     echo "==> Code signing with stable identity '$SIGN_IDENTITY'…"

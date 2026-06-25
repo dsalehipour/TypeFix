@@ -1,6 +1,12 @@
 # TypeFix
 
-**Type fast and sloppy — TypeFix rewrites it into what you meant, in place, in any app.**
+<p align="center">
+  <img src="docs/images/logo-wordmark.png" alt="TypeFix" width="400">
+</p>
+
+<p align="center">
+  <b>Type fast and sloppy — TypeFix rewrites it into what you meant, in place, in any app.</b>
+</p>
 
 <p align="center">
   <img src="docs/images/hero.png" alt="TypeFix turns mistyped text into clean text" width="820">

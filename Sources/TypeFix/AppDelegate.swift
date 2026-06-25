@@ -135,6 +135,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
     }
 
+    /// The TypeFix brand mark (text caret + sparkle) as a monochrome template
+    /// image, drawn as vectors so it stays crisp at any menu-bar scale.
+    private static func brandGlyph() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            NSColor.black.setFill()
+
+            // I-beam caret, positioned slightly left to leave room for the sparkle.
+            let caretX: CGFloat = 6.6
+            let barW: CGFloat = 1.7
+            let serifW: CGFloat = 6.0
+            let topY: CGFloat = 15.0
+            let botY: CGFloat = 3.0
+            NSBezierPath(rect: NSRect(x: caretX - barW / 2, y: botY, width: barW, height: topY - botY)).fill()
+            NSBezierPath(rect: NSRect(x: caretX - serifW / 2, y: topY - barW, width: serifW, height: barW)).fill()
+            NSBezierPath(rect: NSRect(x: caretX - serifW / 2, y: botY, width: serifW, height: barW)).fill()
+
+            // Four-point sparkle at the upper right.
+            let star = NSBezierPath()
+            let cx: CGFloat = 13.4, cy: CGFloat = 12.6
+            let outer: CGFloat = 3.3, inner: CGFloat = 1.15
+            let points: [(CGFloat, CGFloat)] = [
+                (90, outer), (45, inner), (0, outer), (315, inner),
+                (270, outer), (225, inner), (180, outer), (135, inner),
+            ]
+            for (index, point) in points.enumerated() {
+                let radians = point.0 * .pi / 180
+                let p = NSPoint(x: cx + cos(radians) * point.1, y: cy + sin(radians) * point.1)
+                if index == 0 { star.move(to: p) } else { star.line(to: p) }
+            }
+            star.close()
+            star.fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
     private func menuSymbol(_ name: String) -> NSImage? {
         let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
@@ -151,20 +189,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let trusted = AXIsProcessTrusted()
         let sym = settings.hotkey.menuSymbol
 
-        // Menu-bar icon reflects the live state.
-        let symbol: String
-        if !trusted {
-            symbol = "exclamationmark.triangle"
-        } else {
-            switch engine.state {
-            case .idle: symbol = "keyboard"
-            case .capturing: symbol = engine.mode == .auto ? "pencil.line" : "record.circle"
-            case .processing: symbol = "sparkles"
-            }
-        }
+        // Menu-bar icon reflects the live state. At rest it shows the TypeFix
+        // brand mark (caret + sparkle); transient states use status symbols.
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "TypeFix")
-            button.image?.isTemplate = true
+            if trusted, engine.state == .idle {
+                button.image = Self.brandGlyph()
+            } else {
+                let symbol: String
+                if !trusted {
+                    symbol = "exclamationmark.triangle"
+                } else {
+                    switch engine.state {
+                    case .idle: symbol = "keyboard"
+                    case .capturing: symbol = engine.mode == .auto ? "pencil.line" : "record.circle"
+                    case .processing: symbol = "sparkles"
+                    }
+                }
+                button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "TypeFix")
+                button.image?.isTemplate = true
+            }
         }
 
         // A small notice only when setup is incomplete; otherwise the menu is clean.
