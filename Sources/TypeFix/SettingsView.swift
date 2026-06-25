@@ -443,24 +443,9 @@ struct SettingsView: View {
             if !mlx.downloadedModels.isEmpty {
                 Divider()
                 sectionLabel("Downloaded models")
+                caption("Click a model to use it.")
                 ForEach(mlx.downloadedModels) { model in
-                    HStack(spacing: 8) {
-                        Image(systemName: "shippingbox")
-                            .foregroundStyle(.secondary)
-                        Text(model.id)
-                            .font(.callout)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Text(Self.formatBytes(model.bytes))
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        Button(role: .destructive) { mlx.deleteModel(model.id) } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Delete this model to free up disk space")
-                    }
+                    downloadedModelRow(model)
                 }
             }
         }
@@ -476,6 +461,45 @@ struct SettingsView: View {
             icon: readiness.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
             color: readiness.isReady ? .green : .orange
         )
+    }
+
+    private func downloadedModelRow(_ model: MLXModelManager.DownloadedModel) -> some View {
+        let isSelected = settings.model == model.id
+        return HStack(spacing: 8) {
+            Button {
+                settings.model = model.id
+                syncCustomModel()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "shippingbox")
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    Text(model.id)
+                        .font(.callout)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    Text(Self.formatBytes(model.bytes))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help(isSelected ? "Currently selected" : "Use this model")
+
+            Button(role: .destructive) { mlx.deleteModel(model.id) } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Delete this model to free up disk space")
+        }
     }
 
     private func statusLabel(_ text: String, icon: String, color: Color) -> some View {
@@ -605,14 +629,16 @@ struct SettingsView: View {
     private var modelDropdown: some View {
         Menu {
             ForEach(settings.provider.suggestedModels) { option in
+                let downloaded = settings.provider == .mlx && mlx.isModelDownloaded(option.id)
                 Button {
                     isCustomModel = false
                     settings.model = option.id
                 } label: {
+                    let title = option.label + (downloaded ? "  ·  Downloaded ✓" : "")
                     if !isCustomModel && settings.model == option.id {
-                        Label(option.label, systemImage: "checkmark")
+                        Label(title, systemImage: "checkmark")
                     } else {
-                        Text(option.label)
+                        Text(title)
                     }
                 }
             }
