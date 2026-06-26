@@ -302,7 +302,10 @@ final class AppSettings: ObservableObject {
     }
 
     init() {
-        let storedProvider = defaults.string(forKey: Keys.provider).flatMap(Provider.init(rawValue:)) ?? .anthropic
+        // Default new installs to the private, on-device model on Apple Silicon
+        // (it's fast and good with the current prompt); fall back to cloud elsewhere.
+        let defaultProvider: Provider = PlatformInfo.isAppleSilicon ? .mlx : .anthropic
+        let storedProvider = defaults.string(forKey: Keys.provider).flatMap(Provider.init(rawValue:)) ?? defaultProvider
         self.provider = storedProvider
         self.model = defaults.string(forKey: Keys.model) ?? storedProvider.defaultModel
         self.baseURL = defaults.string(forKey: Keys.baseURL) ?? (storedProvider.defaultBaseURL ?? "")

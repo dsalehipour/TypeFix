@@ -43,21 +43,38 @@ enum Eval {
         let config = CorrectionConfig(provider: provider, model: model, apiKey: apiKey, baseURL: baseURL)
         let corrector = TextCorrector()
 
+        // For hybrid Qwen3 (1.7B/0.6B), thinking is ON by default — append the
+        // /no_think soft switch so we measure non-thinking speed, not reasoning.
+        let noThink = env["EVAL_NOTHINK"] == "1"
+        // Optionally A/B test an alternate prompt from a file (for speed/quality tuning).
+        let basePrompt: String
+        if let promptFile = env["EVAL_PROMPT_FILE"],
+           let custom = try? String(contentsOfFile: promptFile, encoding: .utf8) {
+            basePrompt = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            basePrompt = CorrectionText.systemPrompt
+        }
+        let systemPrompt = noThink ? basePrompt + "\n\n/no_think" : basePrompt
+
         print("PROVIDER: \(config.provider.displayName)")
         print("MODEL: \(config.model)")
+        print("THINKING: \(noThink ? "off (/no_think)" : "default")")
         stderr("Loading model and running \(cases.count) cases…\n")
 
         var passed = 0
         var mismatches: [(String, String, String)] = []
+        var times: [Double] = [] // ms per correction
         let start = Date()
 
         for (index, testCase) in cases.enumerated() {
+            let caseStart = Date()
             let got: String
             do {
-                got = try await corrector.correct(testCase.input, config: config)
+                got = try await corrector.correct(testCase.input, config: config, systemPrompt: systemPrompt)
             } catch {
                 got = "ERROR: \(error.localizedDescription)"
             }
+            times.append(Date().timeIntervalSince(caseStart) * 1000)
             let candidates = [testCase.expected] + (testCase.alts ?? [])
             let normalizedGot = normalize(got)
             let ok = candidates.contains { normalize($0) == normalizedGot }
@@ -66,11 +83,20 @@ enum Eval {
             } else {
                 mismatches.append((testCase.input, testCase.expected, got))
             }
-            stderr("[\(index + 1)/\(cases.count)] \(ok ? "ok" : "XX")\n")
+            stderr("[\(index + 1)/\(cases.count)] \(ok ? "ok" : "XX") \(Int(times[index]))ms\n")
         }
 
         let seconds = Int(Date().timeIntervalSince(start))
-        print("\nPASS: \(passed)/\(cases.count)  (\(seconds)s)\n")
+        // First call includes the cold model load; report it separately so the
+        // per-correction figure reflects steady-state latency.
+        let loadFirst = times.first ?? 0
+        let steady = times.dropFirst()
+        let avg = steady.isEmpty ? 0 : steady.reduce(0, +) / Double(steady.count)
+        let fastest = steady.min() ?? 0
+        let slowest = steady.max() ?? 0
+        print("\nPASS: \(passed)/\(cases.count)  (\(seconds)s total)")
+        print(String(format: "SPEED: load+first %.0f ms | per-correction avg %.0f ms (min %.0f, max %.0f)\n",
+                     loadFirst, avg, fastest, slowest))
         print("=== MISMATCHES (review for acceptability) ===\n")
         for (input, expected, got) in mismatches {
             print("IN : \(input)")

@@ -6,9 +6,13 @@ import Foundation
 final class TextCorrector {
     private let session = URLSession(configuration: .default)
 
-    func correct(_ text: String, config: CorrectionConfig) async throws -> String {
+    func correct(
+        _ text: String,
+        config: CorrectionConfig,
+        systemPrompt: String = CorrectionText.systemPrompt
+    ) async throws -> String {
         let backend = try makeBackend(for: config)
-        return try await backend.correct(text, systemPrompt: CorrectionText.systemPrompt)
+        return try await backend.correct(text, systemPrompt: systemPrompt)
     }
 
     private func makeBackend(for config: CorrectionConfig) throws -> CorrectionBackend {
