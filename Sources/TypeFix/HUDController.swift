@@ -125,6 +125,14 @@ final class HUDController {
         scheduleHide(after: 1.4)
     }
 
+    /// Like `flashFixed`, but warns that a likely typo may remain in the result.
+    func flashFixedButCheck() {
+        stopCountdown()
+        flashUntil = Date().addingTimeInterval(2.0)
+        show(symbol: "checkmark.circle.fill", tint: .systemOrange, spinning: false, text: "Fixed · check spelling")
+        scheduleHide(after: 2.0)
+    }
+
     func flashError(_ message: String) {
         stopCountdown()
         flashUntil = Date().addingTimeInterval(2.5)
@@ -145,6 +153,14 @@ final class HUDController {
         flashUntil = Date().addingTimeInterval(1.3)
         show(symbol: "checkmark.seal.fill", tint: .systemGreen, spinning: false, text: "Looks good")
         scheduleHide(after: 1.3)
+    }
+
+    /// Shown when nothing was changed but a likely typo remains in the text.
+    func flashPossibleTypo() {
+        stopCountdown()
+        flashUntil = Date().addingTimeInterval(2.0)
+        show(symbol: "exclamationmark.triangle.fill", tint: .systemOrange, spinning: false, text: "Possible typo")
+        scheduleHide(after: 2.0)
     }
 
     func hide() {

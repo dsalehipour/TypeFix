@@ -27,8 +27,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.onStateChange = { [weak self] in self?.refreshUI() }
         engine.onError = { [weak self] message in self?.handleError(message) }
         engine.onCorrectionApplied = { [weak self] record in
-            self?.history.add(record)
-            self?.hud.flashFixed()
+            guard let self else { return }
+            // Post-LLM guardrail. Run the spell check OFF the main thread — it can
+            // block, and the main thread services the keystroke tap. Non-destructive.
+            guard self.settings.spellCheckAfterCorrection else {
+                self.history.add(record)
+                self.hud.flashFixed()
+                return
+            }
+            let corrected = record.corrected
+            DispatchQueue.global(qos: .userInitiated).async {
+                let flagged = TypoChecker.hasLikelyTypo(in: corrected)
+                DispatchQueue.main.async {
+                    var record = record
+                    record.flaggedResidualTypo = flagged
+                    self.history.add(record)
+                    flagged ? self.hud.flashFixedButCheck() : self.hud.flashFixed()
+                }
+            }
         }
         engine.onAutoCountdown = { [weak self] delay in
             self?.hud.beginCountdown(total: delay)
@@ -37,7 +53,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.hud.flashTooShort(count: count, threshold: threshold)
         }
         engine.onCopyLast = { [weak self] in self?.copyLastOriginal() }
-        engine.onNoChange = { [weak self] in self?.hud.flashAllGood() }
+        engine.onNoChange = { [weak self] text in
+            guard let self else { return }
+            guard self.settings.spellCheckAfterCorrection else {
+                self.hud.flashAllGood()
+                return
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let flagged = TypoChecker.hasLikelyTypo(in: text)
+                DispatchQueue.main.async {
+                    flagged ? self.hud.flashPossibleTypo() : self.hud.flashAllGood()
+                }
+            }
+        }
 
         startEngineOrRequestPermission()
         refreshUI()

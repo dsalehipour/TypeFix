@@ -7,13 +7,27 @@ struct CorrectionRecord: Identifiable, Codable, Hashable {
     let original: String
     let corrected: String
     let appName: String?
+    /// Set when the post-correction spell check found a likely remaining typo.
+    var flaggedResidualTypo: Bool
 
-    init(original: String, corrected: String, appName: String?) {
+    init(original: String, corrected: String, appName: String?, flaggedResidualTypo: Bool = false) {
         self.id = UUID()
         self.date = Date()
         self.original = original
         self.corrected = corrected
         self.appName = appName
+        self.flaggedResidualTypo = flaggedResidualTypo
+    }
+
+    // Decode older history (saved before this field existed) gracefully.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        date = try container.decode(Date.self, forKey: .date)
+        original = try container.decode(String.self, forKey: .original)
+        corrected = try container.decode(String.self, forKey: .corrected)
+        appName = try container.decodeIfPresent(String.self, forKey: .appName)
+        flaggedResidualTypo = try container.decodeIfPresent(Bool.self, forKey: .flaggedResidualTypo) ?? false
     }
 
     var isUnchanged: Bool { original == corrected }

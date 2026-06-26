@@ -32,8 +32,9 @@ final class CorrectionEngine {
     var onAutoBelowThreshold: ((Int, Int) -> Void)?
     /// Fired when the user presses the "copy last original" shortcut (⌥⇧⌘C).
     var onCopyLast: (() -> Void)?
-    /// Fired when the text was already correct and nothing was changed.
-    var onNoChange: (() -> Void)?
+    /// Fired (with the unchanged text) when the model returned no changes, so a
+    /// guardrail can still check it for a remaining typo.
+    var onNoChange: ((String) -> Void)?
 
     // Manual mode
     private var manualBuffer = ""
@@ -296,7 +297,7 @@ final class CorrectionEngine {
                 }
             } else if corrected == text {
                 // Already correct — don't erase and retype; just acknowledge.
-                self.onNoChange?()
+                self.onNoChange?(text)
                 self.autoBuffer = ""
                 self.setState(.idle)
             } else {
@@ -332,7 +333,7 @@ final class CorrectionEngine {
         runCorrection(text: text) { [weak self] corrected in
             guard let self else { return }
             if corrected == text {
-                self.onNoChange?()
+                self.onNoChange?(text)
             } else {
                 let appName = NSWorkspace.shared.frontmostApplication?.localizedName
                 TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
@@ -348,10 +349,16 @@ final class CorrectionEngine {
 
     private func runCorrection(text: String, onSuccess: @escaping (String) -> Void) {
         let config = settings.makeCorrectionConfig()
+        let autoFixTypos = settings.autoFixResidualTypos
         Task { [weak self] in
             guard let self else { return }
             do {
-                let corrected = try await self.corrector.correct(text, config: config)
+                var corrected = try await self.corrector.correct(text, config: config)
+                // Off the main thread: optionally auto-fix any leftover misspelling
+                // with the system's top suggestion before it gets typed.
+                if autoFixTypos {
+                    corrected = TypoChecker.autoFixed(corrected)
+                }
                 await MainActor.run { onSuccess(corrected) }
             } catch {
                 await MainActor.run {

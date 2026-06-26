@@ -80,7 +80,14 @@ private struct HistoryCard: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if record.isUnchanged {
+                if record.flaggedResidualTypo {
+                    Label("Check spelling", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.orange.opacity(0.12)))
+                } else if record.isUnchanged {
                     Text("No change")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)

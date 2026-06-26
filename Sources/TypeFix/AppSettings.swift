@@ -238,6 +238,8 @@ final class AppSettings: ObservableObject {
         static let autoDelay = "autoDelay"
         static let autoMinChars = "autoMinChars"
         static let hotkey = "hotkey"
+        static let spellCheckAfterCorrection = "spellCheckAfterCorrection"
+        static let autoFixResidualTypos = "autoFixResidualTypos"
         static let didUpgradeToSonnetDefault = "didUpgradeToSonnetDefault"
     }
 
@@ -292,6 +294,18 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(autoMinChars, forKey: Keys.autoMinChars) }
     }
 
+    /// After a correction, run an instant on-device spell check and flag the
+    /// result if a likely typo remains (a deterministic guardrail on the LLM).
+    @Published var spellCheckAfterCorrection: Bool {
+        didSet { defaults.set(spellCheckAfterCorrection, forKey: Keys.spellCheckAfterCorrection) }
+    }
+
+    /// When a residual misspelling remains after the LLM, replace it with the
+    /// system's top spelling suggestion automatically (instead of just flagging).
+    @Published var autoFixResidualTypos: Bool {
+        didSet { defaults.set(autoFixResidualTypos, forKey: Keys.autoFixResidualTypos) }
+    }
+
     /// The trigger that starts / submits a correction.
     @Published var hotkey: Hotkey {
         didSet {
@@ -316,6 +330,8 @@ final class AppSettings: ObservableObject {
         self.autoDelay = min(max(storedDelay, AppSettings.autoDelayRange.lowerBound), AppSettings.autoDelayRange.upperBound)
         let storedMinChars = defaults.object(forKey: Keys.autoMinChars) as? Int ?? 10
         self.autoMinChars = min(max(storedMinChars, AppSettings.autoMinCharsRange.lowerBound), AppSettings.autoMinCharsRange.upperBound)
+        self.spellCheckAfterCorrection = defaults.object(forKey: Keys.spellCheckAfterCorrection) as? Bool ?? true
+        self.autoFixResidualTypos = defaults.object(forKey: Keys.autoFixResidualTypos) as? Bool ?? false
         if let data = defaults.data(forKey: Keys.hotkey),
            let storedHotkey = try? JSONDecoder().decode(Hotkey.self, from: data) {
             self.hotkey = storedHotkey

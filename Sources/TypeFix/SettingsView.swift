@@ -588,6 +588,24 @@ struct SettingsView: View {
             }
 
             card {
+                sectionLabel("Safety Net")
+                Toggle("Spell-check after correcting", isOn: Binding(
+                    get: { settings.spellCheckAfterCorrection },
+                    set: { settings.spellCheckAfterCorrection = $0 }
+                ))
+                .toggleStyle(.switch)
+                caption("After each fix, an instant on-device check flags the result (in the HUD and History) if a likely typo remains. It never changes your text — just a heads-up.")
+
+                Toggle("Auto-fix leftover typos", isOn: Binding(
+                    get: { settings.autoFixResidualTypos },
+                    set: { settings.autoFixResidualTypos = $0 }
+                ))
+                .toggleStyle(.switch)
+                .padding(.top, 4)
+                caption("Instead of just flagging, replace any leftover misspelling with the system's top suggestion automatically. Fast and on-device, but it can occasionally pick the wrong word.")
+            }
+
+            card {
                 sectionLabel("How It Works")
                 VStack(alignment: .leading, spacing: 10) {
                     if settings.correctionMode == .auto {
