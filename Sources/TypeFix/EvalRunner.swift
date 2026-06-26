@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Runs each garbled case through the *real* correction path (the same
 /// `TextCorrector` + system prompt the app ships), against whichever provider/
-/// model is currently selected in settings — including the embedded MLX model —
+/// model is currently selected in settings - including the embedded MLX model -
 /// and grades the output word-for-word (ignoring case/punctuation).
 enum Eval {
     struct Case: Decodable {
@@ -43,7 +43,7 @@ enum Eval {
         let config = CorrectionConfig(provider: provider, model: model, apiKey: apiKey, baseURL: baseURL)
         let corrector = TextCorrector()
 
-        // For hybrid Qwen3 (1.7B/0.6B), thinking is ON by default — append the
+        // For hybrid Qwen3 (1.7B/0.6B), thinking is ON by default - append the
         // /no_think soft switch so we measure non-thinking speed, not reasoning.
         let noThink = env["EVAL_NOTHINK"] == "1"
         // Optionally A/B test an alternate prompt from a file (for speed/quality tuning).
@@ -106,7 +106,7 @@ enum Eval {
         fflush(stdout)
     }
 
-    /// Lowercase, drop everything but letters/digits, collapse whitespace — so we
+    /// Lowercase, drop everything but letters/digits, collapse whitespace - so we
     /// judge whether the words are right, not exact casing/punctuation.
     static func normalize(_ string: String) -> String {
         let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789")

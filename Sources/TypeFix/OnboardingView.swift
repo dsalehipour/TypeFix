@@ -178,7 +178,7 @@ struct OnboardingView: View {
             setupRow(
                 number: 2,
                 done: backendReady,
-                text: "Choose your AI backend — a **cloud key** (Anthropic / OpenAI) or a **private, on-device** model.",
+                text: "Choose your AI backend: a **cloud key** (Anthropic / OpenAI) or a **private, on-device** model.",
                 buttonTitle: "Settings",
                 action: onOpenSettings
             )

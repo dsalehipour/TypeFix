@@ -26,7 +26,7 @@ enum TypoChecker {
     /// True if `text` contains a word that looks like an unintended misspelling.
     ///
     /// Call this OFF the main thread. NSSpellChecker can block on its XPC service,
-    /// and the main thread also services the keystroke event tap — blocking it
+    /// and the main thread also services the keystroke event tap, so blocking it
     /// would freeze the user's typing.
     static func hasLikelyTypo(in text: String) -> Bool {
         let checker = NSSpellChecker.shared

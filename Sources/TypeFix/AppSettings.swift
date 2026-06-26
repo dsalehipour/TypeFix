@@ -359,7 +359,7 @@ final class AppSettings: ObservableObject {
     }
 
     // Cache keys in memory so we only hit the Keychain once per provider per
-    // launch — otherwise every correction triggers a Keychain access (and
+    // launch; otherwise every correction triggers a Keychain access (and
     // potentially its permission prompt).
     private var keyCache: [String: String] = [:]
     private var keyCacheLoaded: Set<String> = []

@@ -18,7 +18,7 @@ struct HotkeyModifiers: OptionSet, Codable, Equatable {
         self = mods
     }
 
-    /// At least one non-shift modifier — required so a shortcut can't collide
+    /// At least one non-shift modifier, required so a shortcut can't collide
     /// with ordinary typing (e.g. Shift+letter).
     var hasNonShiftModifier: Bool {
         contains(.command) || contains(.option) || contains(.control)

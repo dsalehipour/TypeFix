@@ -22,8 +22,8 @@ mkdir -p "$STAGING"
 cp -R "$APP" "$STAGING/$APP"
 ln -s /Applications "$STAGING/Applications"
 
-cat > "$STAGING/Read Me — First Launch.txt" <<'TXT'
-TypeFix — first launch
+cat > "$STAGING/Read Me - First Launch.txt" <<'TXT'
+TypeFix: first launch
 
 1. Drag TypeFix onto the Applications folder shown in this window.
 
@@ -32,7 +32,7 @@ TypeFix — first launch
      System Settings → Privacy & Security → scroll down → "Open Anyway".
    This one-time step is only needed because the app isn't notarized by Apple.
 
-3. A caret/keyboard icon appears in the menu bar (TypeFix has no Dock icon).
+3. A text cursor icon appears in the menu bar (TypeFix has no Dock icon).
 
 4. Grant Accessibility when prompted (menu bar → Open Accessibility Settings…)
    so TypeFix can read and rewrite text in any app.

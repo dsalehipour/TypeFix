@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.onError = { [weak self] message in self?.handleError(message) }
         engine.onCorrectionApplied = { [weak self] record in
             guard let self else { return }
-            // Post-LLM guardrail. Run the spell check OFF the main thread — it can
+            // Post-LLM guardrail. Run the spell check OFF the main thread, since it can
             // block, and the main thread services the keystroke tap. Non-destructive.
             guard self.settings.spellCheckAfterCorrection else {
                 self.history.add(record)

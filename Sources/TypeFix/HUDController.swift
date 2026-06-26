@@ -14,9 +14,9 @@ private final class HUDModel: ObservableObject {
 /// A small floating, non-activating overlay that shows TypeFix's activity.
 ///
 /// In Auto mode it acts like a traffic light:
-///   🟢 green  — you're typing
-///   🟡 yellow — counting down (about to fix), shows the remaining seconds
-///   🔴 red    — thinking (calling the model), with a spinner
+///   🟢 green  - you're typing
+///   🟡 yellow - counting down (about to fix), shows the remaining seconds
+///   🔴 red    - thinking (calling the model), with a spinner
 ///
 /// It never becomes key and never activates the app, so it does not steal focus
 /// from the field you're typing into. Rendered as a modern translucent capsule.
@@ -312,7 +312,7 @@ private struct HUDContent: View {
         .overlay(Capsule(style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
         .shadow(color: .black.opacity(0.22), radius: 12, y: 4)
         // Generous transparent margin so the shadow fully fades before the
-        // (rectangular) panel edge — otherwise the shadow looks clipped.
+        // (rectangular) panel edge - otherwise the shadow looks clipped.
         .padding(32)
         .fixedSize()
     }

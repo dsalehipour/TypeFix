@@ -296,7 +296,7 @@ final class CorrectionEngine {
                     self.onAutoCountdown?(self.settings.autoDelay)
                 }
             } else if corrected == text {
-                // Already correct — don't erase and retype; just acknowledge.
+                // Already correct, so don't erase and retype; just acknowledge.
                 self.onNoChange?(text)
                 self.autoBuffer = ""
                 self.setState(.idle)

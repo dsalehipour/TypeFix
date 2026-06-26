@@ -57,7 +57,7 @@ struct SettingsView: View {
         var subtitle: String {
             switch self {
             case .behavior: return "How and when TypeFix fixes your text."
-            case .provider: return "Choose where corrections run — a cloud key or a private, on-device model."
+            case .provider: return "Choose where corrections run: a cloud key or a private, on-device model."
             case .permissions: return "What TypeFix needs to work, and what it keeps private."
             case .general: return "App preferences and a quick refresher."
             }
@@ -274,7 +274,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(settings.provider.isLocal ? .green : .secondary)
                     caption(settings.provider.isLocal
-                        ? "Runs on your machine — your text never leaves this device."
+                        ? "Runs on your machine. Your text never leaves this device."
                         : "Your text is sent to \(settings.provider.displayName) over HTTPS.")
                 }
                 .padding(.top, 2)
@@ -411,7 +411,7 @@ struct SettingsView: View {
                 statusLabel("The embedded model needs an Apple Silicon Mac.", icon: "exclamationmark.triangle.fill", color: .orange)
             case .idle:
                 if mlx.isModelDownloaded(settings.model) {
-                    statusLabel("Model downloaded — runs fully offline.", icon: "checkmark.circle.fill", color: .green)
+                    statusLabel("Model downloaded. Runs fully offline.", icon: "checkmark.circle.fill", color: .green)
                     Button("Re-download model") { mlx.prepare(modelID: settings.model) }
                         .buttonStyle(SecondaryButtonStyle())
                 } else {
@@ -433,10 +433,10 @@ struct SettingsView: View {
                 HStack {
                     Button("Cancel", role: .cancel) { mlx.cancelDownload() }
                         .buttonStyle(SecondaryButtonStyle())
-                    caption("Resumes later — partial files are kept.")
+                    caption("Resumes later; partial files are kept.")
                 }
             case .ready:
-                statusLabel("Model downloaded — runs fully offline.", icon: "checkmark.circle.fill", color: .green)
+                statusLabel("Model downloaded. Runs fully offline.", icon: "checkmark.circle.fill", color: .green)
             case .failed(let message):
                 statusLabel("Download failed: \(message)", icon: "xmark.circle.fill", color: .red)
                 Button("Retry") { mlx.prepare(modelID: settings.model) }
@@ -463,7 +463,7 @@ struct SettingsView: View {
         let readiness = FoundationModelsBackend.readiness()
         return statusLabel(
             readiness.isReady
-                ? "Apple's built-in on-device model is available — nothing is downloaded or sent online."
+                ? "Apple's built-in on-device model is available. Nothing is downloaded or sent online."
                 : (readiness.message ?? "Unavailable."),
             icon: readiness.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
             color: readiness.isReady ? .green : .orange
@@ -567,7 +567,7 @@ struct SettingsView: View {
                 }
             }
             Divider()
-            caption("TypeFix only reads text during an active correction, stores nothing beyond your local history, and — with a local provider — sends nothing online.")
+            caption("TypeFix only reads text during an active correction, stores nothing beyond your local history, and (with a local provider) sends nothing online.")
         }
     }
 
@@ -594,7 +594,7 @@ struct SettingsView: View {
                     set: { settings.spellCheckAfterCorrection = $0 }
                 ))
                 .toggleStyle(.switch)
-                caption("After each fix, an instant on-device check flags the result (in the HUD and History) if a likely typo remains. It never changes your text — just a heads-up.")
+                caption("After each fix, an instant on-device check flags the result (in the HUD and History) if a likely typo remains. It never changes your text, just a heads-up.")
 
                 Toggle("Auto-fix leftover typos", isOn: Binding(
                     get: { settings.autoFixResidualTypos },

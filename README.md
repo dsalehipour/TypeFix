@@ -97,7 +97,7 @@
 > This one-time step is only needed because the app is **self-signed**, not
 > notarized by Apple. Requires **macOS 14+** on an **Apple Silicon** Mac.
 
-A caret icon appears in the menu bar (TypeFix has no Dock icon).
+A text cursor icon appears in the menu bar (TypeFix has no Dock icon).
 
 ### Build from source
 

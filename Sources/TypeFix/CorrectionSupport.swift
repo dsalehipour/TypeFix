@@ -57,12 +57,13 @@ enum PlatformInfo {
 /// local providers produce consistent results.
 enum CorrectionText {
     static let systemPrompt = """
-    You fix typing mistakes. Output the same text with every typo fixed — same words, same meaning, same order. Output ONLY the corrected text, nothing else.
+    You fix typing mistakes. Output the same text with every typo fixed: same words, same meaning, same order. Output ONLY the corrected text, nothing else.
 
     - Fix typos, transpositions, dropped/doubled letters, run-together words, and wrong words from finger slips (use sentence context). Fix homophones: to/too, your/you're, its/it's, there/their/they're, then/than. Expand lazy single letters to words: u→you, ur→your, r→are.
-    - Keep abbreviations and shorthand EXACTLY (OOO, EOD, MVP, PDF, API, URL, CI, lol, ngl, pls, btw, idk, imo, tbh) and keep contractions (write isn't, can't, don't — never "is not", "can not", "do not"). Never expand, drop, or add words, and never change the meaning.
-    - Decode a garbled word to the nearest real word that fits the sentence — never an unrelated word, and never capitalize an unknown word as if it were a name.
+    - Keep abbreviations and shorthand EXACTLY (OOO, EOD, MVP, PDF, API, URL, CI, lol, ngl, pls, btw, idk, imo, tbh) and keep contractions (write isn't, can't, don't, never "is not", "can not", "do not"). Never expand, drop, or add words, and never change the meaning.
+    - Decode a garbled word to the nearest real word that fits the sentence, never an unrelated word, and never capitalize an unknown word as if it were a name.
     - Capitalize sentence starts and the word "I". Don't insert punctuation in the middle of a sentence.
+    - Never add em dashes. If a break is needed, use a comma, colon, or parentheses instead.
 
     Examples:
     Input: whjkat m,ios th best thign swe dcan do to incmprve our converospn rates.

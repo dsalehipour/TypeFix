@@ -1,7 +1,7 @@
 import Foundation
 
 /// Correction via any OpenAI-compatible server running on the user's machine or
-/// network — e.g. Ollama (`http://localhost:11434/v1`), `llama.cpp`'s server, or
+/// network, e.g. Ollama (`http://localhost:11434/v1`), `llama.cpp`'s server, or
 /// LM Studio. The text never leaves the configured endpoint.
 struct OpenAICompatibleBackend: CorrectionBackend {
     let baseURL: String

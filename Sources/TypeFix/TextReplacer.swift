@@ -1,7 +1,7 @@
 import AppKit
 
 /// Stamp placed on synthetic events so our own event tap can ignore the
-/// keystrokes TypeFix injects (backspaces + paste) — important in Auto mode,
+/// keystrokes TypeFix injects (backspaces + paste) - important in Auto mode,
 /// where the tap captures continuously.
 let typeFixSyntheticMarker: Int64 = 0x7459_7046 // "tYpF"
 
@@ -12,7 +12,7 @@ let typeFixSyntheticMarker: Int64 = 0x7459_7046 // "tYpF"
 ///
 /// Why paste instead of typing each character: when text is injected as
 /// individual keystrokes, the target app/system applies its own text features
-/// to it — autocapitalization, "double-space → period", autocorrect — which
+/// to it - autocapitalization, "double-space → period", autocorrect - which
 /// corrupts the result (stray periods, dropped spaces). A paste is inserted
 /// literally and bypasses all of that. The previous clipboard contents are
 /// restored afterwards (unless the user copied something in the meantime).
@@ -49,7 +49,7 @@ final class TextReplacer {
             self.postPaste(source: source)
 
             // 4. Wait for the paste to be consumed, then restore the user's
-            //    clipboard — but only if they didn't copy something meanwhile.
+            //    clipboard - but only if they didn't copy something meanwhile.
             usleep(450_000)
             if pasteboard.changeCount == stampedChangeCount {
                 pasteboard.clearContents()
