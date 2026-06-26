@@ -94,11 +94,14 @@ struct SettingsView: View {
             apiKey = settings.apiKey ?? ""
             syncCustomModel()
             mlx.refreshDownloadedModels()
+            warmSelectedModelIfNeeded()
         }
         .onChange(of: settings.provider) { _, _ in
             apiKey = settings.apiKey ?? ""
             syncCustomModel()
+            warmSelectedModelIfNeeded()
         }
+        .onChange(of: settings.model) { _, _ in warmSelectedModelIfNeeded() }
         .onChange(of: apiKey) { _, newValue in settings.setAPIKey(newValue) }
         .onReceive(permissionTimer) { _ in accessibilityGranted = AXIsProcessTrusted() }
     }
@@ -440,6 +443,10 @@ struct SettingsView: View {
                     .buttonStyle(SecondaryButtonStyle())
             }
 
+            if mlx.isSupported, mlx.isModelDownloaded(settings.model) {
+                modelLoadStateRow
+            }
+
             if !mlx.downloadedModels.isEmpty {
                 Divider()
                 sectionLabel("Downloaded models")
@@ -461,6 +468,29 @@ struct SettingsView: View {
             icon: readiness.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
             color: readiness.isReady ? .green : .orange
         )
+    }
+
+    @ViewBuilder
+    private var modelLoadStateRow: some View {
+        switch mlx.loadState {
+        case .loading(let id) where id == settings.model:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Loading model into memory…")
+                    .font(.callout)
+            }
+        case .loaded(let id) where id == settings.model:
+            statusLabel("Loaded in memory. Corrections are instant.", icon: "bolt.fill", color: .green)
+        case .failed(let message):
+            statusLabel("Couldn't load model: \(message)", icon: "xmark.circle.fill", color: .red)
+        default:
+            HStack(spacing: 10) {
+                caption("Loads into memory automatically (a few seconds) so your first correction is instant.")
+                Spacer(minLength: 8)
+                Button("Load now") { mlx.warm(modelID: settings.model) }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+        }
     }
 
     private func downloadedModelRow(_ model: MLXModelManager.DownloadedModel) -> some View {
@@ -666,6 +696,13 @@ struct SettingsView: View {
     private func syncCustomModel() {
         let ids = settings.provider.suggestedModels.map(\.id)
         isCustomModel = !ids.contains(settings.model)
+    }
+
+    /// Pre-load the selected embedded model into memory (debounced) so the first
+    /// correction is instant.
+    private func warmSelectedModelIfNeeded() {
+        guard settings.provider == .mlx else { return }
+        mlx.scheduleWarm(modelID: settings.model)
     }
 
     // MARK: - Actions

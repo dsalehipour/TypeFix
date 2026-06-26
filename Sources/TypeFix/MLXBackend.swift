@@ -27,6 +27,18 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
 
     @Published private(set) var status: Status
 
+    /// Whether a model's weights are loaded into memory (warm) and ready for
+    /// instant corrections. Loading a model reads its weights into GPU memory and
+    /// takes a few seconds the first time; afterwards it stays warm.
+    enum LoadState: Equatable {
+        case idle
+        case loading(String)
+        case loaded(String)
+        case failed(String)
+    }
+
+    @Published private(set) var loadState: LoadState = .idle
+
     /// A model whose weights are present in the on-disk cache.
     struct DownloadedModel: Identifiable, Equatable {
         let id: String
@@ -44,6 +56,10 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
     private var downloadTask: Task<Void, Never>?
     /// The model currently downloading (for cancellation cleanup).
     private var downloadingModelID: String?
+    /// In-flight warm (load-into-memory) task, so a newer selection supersedes it.
+    private var warmTask: Task<Void, Never>?
+    /// Debounce so browsing the model list doesn't thrash memory.
+    private var warmDebounce: Task<Void, Never>?
 
     private init() {
         #if canImport(MLXLLM)
@@ -70,6 +86,68 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
     }
 
     static func downloadedKey(_ id: String) -> String { "mlxDownloaded:\(id)" }
+
+    /// True when the given model is loaded into memory and ready for instant use.
+    func isLoaded(_ modelID: String) -> Bool {
+        if case .loaded(let id) = loadState {
+            return id == modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return false
+    }
+
+    /// Load a downloaded model into memory ahead of the first correction so it's
+    /// instant (and so the UI can show the load happening). A newer selection
+    /// supersedes an in-flight load.
+    func warm(modelID: String) {
+        let id = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return }
+        #if canImport(MLXLLM)
+        guard isSupported else { return }
+        if case .loaded(let current) = loadState, current == id { return }
+        if case .loading(let current) = loadState, current == id { return }
+        if case .loading(let previous) = loadState {
+            Task { await MLXContainerCache.shared.cancel(modelID: previous) }
+        }
+        warmTask?.cancel()
+        setLoadState(.loading(id))
+        warmTask = Task { [weak self] in
+            do {
+                _ = try await MLXContainerCache.shared.container(modelID: id) { _ in }
+                if Task.isCancelled { return }
+                self?.setLoadState(.loaded(id))
+            } catch {
+                if Task.isCancelled { return }
+                self?.setLoadState(.failed(error.localizedDescription))
+            }
+        }
+        #endif
+    }
+
+    /// Warm the model after a short delay, so quickly flipping through models in
+    /// the picker doesn't load each one. Call this when the selection changes.
+    func scheduleWarm(modelID: String) {
+        warmDebounce?.cancel()
+        let id = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isSupported, isModelDownloaded(id), !isLoaded(id) else { return }
+        warmDebounce = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            await MainActor.run { self?.warm(modelID: id) }
+        }
+    }
+
+    /// Called by the backend once a model's container is resident in memory.
+    func markLoaded(_ modelID: String) {
+        setLoadState(.loaded(modelID.trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+
+    private func setLoadState(_ newState: LoadState) {
+        if Thread.isMainThread {
+            loadState = newState
+        } else {
+            DispatchQueue.main.async { self.loadState = newState }
+        }
+    }
 
     /// Scan the cache for downloaded models and publish them (with sizes).
     func refreshDownloadedModels() {
@@ -116,6 +194,9 @@ final class MLXModelManager: ObservableObject, @unchecked Sendable {
         #endif
         if case .ready(let current) = status, current == id {
             setStatus(.idle)
+        }
+        if isLoaded(id) {
+            setLoadState(.idle)
         }
         refreshDownloadedModels()
     }
@@ -321,6 +402,7 @@ struct MLXBackend: CorrectionBackend {
         }
 
         let container = try await MLXContainerCache.shared.container(modelID: id) { _ in }
+        MLXModelManager.shared.markLoaded(id)
 
         let parameters = GenerateParameters(maxTokens: 2048, temperature: 0)
         let prompt = systemPrompt
