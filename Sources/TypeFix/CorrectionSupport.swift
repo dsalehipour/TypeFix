@@ -70,15 +70,24 @@ enum CorrectionText {
     (e.g. "tit"→"it", "walw"→"want", "thign"→"thing", "swe"→"we", "arc"→"card", \
     "oer"→"per", "neeig"→"needing", "aut"→"auto", "scrubsrice"→"subscribe", \
     "hcannel"→"channel").
+    - Fix wrong homophones from context: to/too/two, your/you're, its/it's, \
+    there/their/they're, then/than (e.g. "to slow"→"too slow").
     - Read the WHOLE sentence's meaning to work out each intended word. Decode a \
-    garbled word into the real, ordinary word that best fits the sentence. Do NOT \
-    keep a nonsense word, and do NOT capitalize an unrecognized garbled word as if \
-    it were a name or brand — only treat something as a proper noun when it clearly \
-    is one.
+    garbled word into the real, ordinary word that best fits the sentence. Pick the \
+    word closest to the typed letters that fits the meaning — never swap in an \
+    unrelated word (e.g. "sidebra"→"sidebar", not "skirt"). Do NOT keep a nonsense \
+    word, and do NOT capitalize an unrecognized garbled word as if it were a name or \
+    brand — only treat something as a proper noun when it clearly is one.
     - Correct the WHOLE text no matter how long. Never return the text unchanged if \
     it still contains typos or wrong words.
-    - Do NOT rephrase, reword, reorder, summarize, translate, expand abbreviations, \
-    or change the meaning. Keep the user's wording, tone, and casual shorthand.
+    - Do NOT rephrase, reword, reorder, summarize, translate, or change the meaning. \
+    Never add or drop words.
+    - Keep abbreviations and chat shorthand EXACTLY as written — never expand them \
+    and never turn them into a different word. These stay as-is: OOO, EOD, MVP, PDF, \
+    API, URL, CI, lol, ngl, pls, btw, idk, imo, tbh, fyi, afaik, iirc, rn (e.g. \
+    "imo" stays "imo", never "I'm"; "idk" stays "idk", never "I don't know"). Keep \
+    contractions as contractions (write "isn't", never "is not"; "won't", never \
+    "will not").
     - Spacing: add a missing space between run-together words, but NEVER delete a \
     space that belongs between words and NEVER merge two separate words ("also clear" \
     stays two words, not "alsoclear"). When splitting a run-together word, pick the \
@@ -103,6 +112,24 @@ enum CorrectionText {
 
     Input: signinto scrubsrice to this hcannel
     Output: sign in to subscribe to this channel
+
+    Input: the serach is to slow and the resluts are wrong
+    Output: the search is too slow and the results are wrong
+
+    Input: ill be ooo next weke, pls dont merge
+    Output: I'll be OOO next week, pls don't merge
+
+    Input: the unti tets faild but theyre all gren now
+    Output: the unit tests failed but they're all green now
+
+    Input: can we pari up if we get more headcoutn
+    Output: can we pair up if we get more headcount
+
+    Input: the dashbaord has to many widgits and not enuogh space
+    Output: the dashboard has too many widgets and not enough space
+
+    Input: imo we shoud waet for the api befoer we shipp
+    Output: imo we should wait for the API before we ship
     """
 
     private static let quoteCharacters: Set<Character> = [

@@ -8,3 +8,7 @@ TypeFix.app/
 # Distributable disk image (build artifact)
 *.dmg
 .dmg-staging/
+
+# Eval harness transient output
+eval/*.txt
+eval/__pycache__/

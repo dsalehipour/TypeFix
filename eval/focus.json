@@ -1,0 +1,23 @@
+[
+  {"in": "the tets are all gren now", "out": "the tests are all green now"},
+  {"in": "lets pari on this bug", "out": "let's pair on this bug"},
+  {"in": "can we get more headcoutn", "out": "can we get more headcount"},
+  {"in": "honestly i thnik the bigest problm rihgt now is that our onbaording flwo has to many steps and peopel are droping off befoer they even get to the dashbaord", "out": "honestly I think the biggest problem right now is that our onboarding flow has too many steps and people are dropping off before they even get to the dashboard"},
+  {"in": "whats the staus of the depoly", "out": "what's the status of the deploy", "alts": ["what is the status of the deploy"]},
+  {"in": "whc browser are yu usign", "out": "which browser are you using", "alts": ["what browser are you using"]},
+  {"in": "the spreadshet is corruptd", "out": "the spreadsheet is corrupted", "alts": ["the spreadsheet is corrupt"]},
+  {"in": "the regex isnt matchnig", "out": "the regex isn't matching", "alts": ["the regex is not matching"]},
+  {"in": "the reasn the paymetn faild is becuase the webhok wasnt configurd corectly so the chrage never went throuhg", "out": "the reason the payment failed is because the webhook wasn't configured correctly so the charge never went through", "alts": ["the reason the payment failed is because the webhook was not configured correctly so the charge never went through"]},
+  {"in": "teh quick brown fxo jumpd over teh lazy dog", "out": "the quick brown fox jumped over the lazy dog"},
+  {"in": "dont forget to mege the brnach", "out": "don't forget to merge the branch"},
+  {"in": "the api retruns a 500 erro", "out": "the API returns a 500 error"},
+  {"in": "lets deploy to vercell and chekc the lgos in datadgo", "out": "let's deploy to Vercel and check the logs in Datadog"},
+  {"in": "i merged it intto main", "out": "I merged it into main"},
+  {"in": "ship it!", "out": "ship it!"},
+  {"in": "Let's review the pull request after lunch.", "out": "Let's review the pull request after lunch."},
+  {"in": "ngl this weke has ben a lot but im realy proud of waht the tem shiped", "out": "ngl this week has been a lot but I'm really proud of what the team shipped"},
+  {"in": "the serach is to slow", "out": "the search is too slow"},
+  {"in": "ill be ooo next weke", "out": "I'll be OOO next week"},
+  {"in": "im so tierd todya lol", "out": "I'm so tired today lol"},
+  {"in": "i thikn its a race conditoin", "out": "I think it's a race condition"}
+]

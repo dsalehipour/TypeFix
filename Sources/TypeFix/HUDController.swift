@@ -170,6 +170,7 @@ final class HUDController {
         hide() // clear the main pill; the note replaces it
         _ = notePanelOrCreate()
         noteModel.text = text
+        noteHostingView?.rootView = HUDNoteContent(model: noteModel)
         layoutAndShow(notePanel, hostingView: noteHostingView, pillPadding: 22)
 
         noteHideTimer?.invalidate()
@@ -198,6 +199,9 @@ final class HUDController {
         model.useDot = isDot
         model.symbol = isDot ? nil : symbol
         if let tint { model.tint = Color(nsColor: tint) }
+        // Reassigning rootView forces a synchronous re-measure; otherwise SwiftUI
+        // updates async and fittingSize lags the new text, clipping longer pills.
+        hostingView?.rootView = HUDContent(model: model)
         layoutAndShow(panel, hostingView: hostingView, pillPadding: 32)
     }
 
