@@ -20,6 +20,8 @@ final class KeyEventTap {
     var onCopyLast: (() -> Void)?
     var onCharacters: ((String) -> Void)?
     var onBackspace: (() -> Void)?
+    var onDeleteWord: (() -> Void)?        // Option+Delete
+    var onDeleteToLineStart: (() -> Void)? // Cmd+Delete
     var onEnter: (() -> Void)?
     var onTab: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -163,8 +165,25 @@ final class KeyEventTap {
         let flags = event.flags
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
 
-        // Command/Control combos move the cursor or change selection; treat them
-        // as boundaries rather than typed text.
+        // Delete and its modifier variants. Handle these BEFORE the generic
+        // Command/Control shortcut check so multi-character deletes stay in sync
+        // with the capture buffer: Cmd+Delete removes to the line start and
+        // Option+Delete removes the previous word (a very common way to backspace).
+        if keyCode == Key.delete {
+            if flags.contains(.maskCommand) {
+                onDeleteToLineStart?()
+            } else if flags.contains(.maskAlternate) {
+                onDeleteWord?()
+            } else if flags.contains(.maskControl) {
+                onNavigation?() // ambiguous; abandon the chunk to stay safe
+            } else {
+                onBackspace?()
+            }
+            return
+        }
+
+        // Other Command/Control combos move the cursor or change selection; treat
+        // them as boundaries rather than typed text.
         if flags.contains(.maskCommand) || flags.contains(.maskControl) {
             onNavigation?()
             return
@@ -176,8 +195,6 @@ final class KeyEventTap {
         }
 
         switch keyCode {
-        case Key.delete:
-            onBackspace?()
         case Key.escape:
             onCancel?()
         case Key.returnKey, Key.keypadEnter:

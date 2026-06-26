@@ -57,6 +57,8 @@ final class CorrectionEngine {
         tap.onCopyLast = { [weak self] in self?.onCopyLast?() }
         tap.onCharacters = { [weak self] characters in self?.handleCharacters(characters) }
         tap.onBackspace = { [weak self] in self?.handleBackspace() }
+        tap.onDeleteWord = { [weak self] in self?.handleDeleteWord() }
+        tap.onDeleteToLineStart = { [weak self] in self?.handleDeleteToLineStart() }
         tap.onEnter = { [weak self] in self?.handleEnter() }
         tap.onTab = { [weak self] in self?.handleTab() }
         tap.onCancel = { [weak self] in self?.handleEscape() }
@@ -155,16 +157,22 @@ final class CorrectionEngine {
         }
     }
 
-    private func handleBackspace() {
+    private func handleBackspace() { applyDeletion(Self.removingLastCharacter) }
+    private func handleDeleteWord() { applyDeletion(Self.removingLastWord) }
+    private func handleDeleteToLineStart() { applyDeletion(Self.removingToLineStart) }
+
+    /// Mirrors a deletion (single char, Option+word, or Cmd+line) on the active
+    /// capture buffer so it stays in sync with the text field.
+    private func applyDeletion(_ transform: (String) -> String) {
         syncModeIfNeeded()
         guard isArmed else { return }
         switch mode {
         case .manual:
-            guard state == .capturing, !manualBuffer.isEmpty else { return }
-            manualBuffer.removeLast()
+            guard state == .capturing else { return }
+            manualBuffer = transform(manualBuffer)
         case .auto:
             if state == .processing { typedDuringProcessing = true }
-            if !autoBuffer.isEmpty { autoBuffer.removeLast() }
+            autoBuffer = transform(autoBuffer)
             if autoBuffer.isEmpty {
                 idleTimer?.invalidate()
                 idleTimer = nil
@@ -174,6 +182,29 @@ final class CorrectionEngine {
                 if state != .processing { onAutoCountdown?(settings.autoDelay) }
             }
         }
+    }
+
+    private static func removingLastCharacter(_ text: String) -> String {
+        var text = text
+        if !text.isEmpty { text.removeLast() }
+        return text
+    }
+
+    /// Approximates macOS Option+Delete: drop trailing whitespace, then the
+    /// trailing run of non-whitespace (the previous word).
+    private static func removingLastWord(_ text: String) -> String {
+        var characters = Array(text)
+        while let last = characters.last, last.isWhitespace { characters.removeLast() }
+        while let last = characters.last, !last.isWhitespace { characters.removeLast() }
+        return String(characters)
+    }
+
+    /// Approximates macOS Cmd+Delete: drop back to the start of the current line.
+    private static func removingToLineStart(_ text: String) -> String {
+        if let newlineIndex = text.lastIndex(of: "\n") {
+            return String(text[...newlineIndex])
+        }
+        return ""
     }
 
     private func handleEnter() {

@@ -326,7 +326,7 @@ final class AppSettings: ObservableObject {
         // Default to Manual (explicit double-Shift). Auto is opt-in.
         self.correctionMode = defaults.string(forKey: Keys.correctionMode)
             .flatMap(CorrectionMode.init(rawValue:)) ?? .manual
-        let storedDelay = defaults.object(forKey: Keys.autoDelay) as? Double ?? 2.0
+        let storedDelay = defaults.object(forKey: Keys.autoDelay) as? Double ?? 0.6
         self.autoDelay = min(max(storedDelay, AppSettings.autoDelayRange.lowerBound), AppSettings.autoDelayRange.upperBound)
         let storedMinChars = defaults.object(forKey: Keys.autoMinChars) as? Int ?? 10
         self.autoMinChars = min(max(storedMinChars, AppSettings.autoMinCharsRange.lowerBound), AppSettings.autoMinCharsRange.upperBound)
