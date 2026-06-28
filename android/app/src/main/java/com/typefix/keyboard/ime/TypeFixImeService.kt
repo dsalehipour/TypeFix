@@ -66,6 +66,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var writingJob: Job? = null
     private var backspaceJob: Job? = null
     private var gifSearchJob: Job? = null
+    private var emojiSearchJob: Job? = null
     private var toneJob: Job? = null
     private var toneTarget: String? = null
     private var toneFlag: String? = null
@@ -367,9 +368,12 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onEmojiSearchQuery(query: String) {
-        // Local fuzzy results show instantly in the keyboard; this refines them
-        // with LLM-based semantic matches when a backend is configured.
-        scope.launch {
+        // Local fuzzy results already show instantly per keystroke. The LLM
+        // refine is debounced (and the prior one cancelled) so we don't queue a
+        // slow on-device search for every character typed.
+        emojiSearchJob?.cancel()
+        emojiSearchJob = scope.launch {
+            delay(600)
             val results = Corrector.searchEmojis(applicationContext, query, settings.snapshot())
             if (results.isNotEmpty()) keyboard?.setEmojiSearchResults(results)
         }

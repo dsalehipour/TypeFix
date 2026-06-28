@@ -17,6 +17,7 @@ object EmojiSearchIndex {
         listOf("wow", "shock", "surprise", "omg", "amazed", "mind blown") to listOf("😮", "😲", "🤯", "😱"),
         listOf("cool", "sunglasses", "awesome", "swag") to listOf("😎", "🆒", "🕶️"),
         listOf("wink", "flirt", "playful") to listOf("😉", "😜", "😏"),
+        listOf("silly", "goofy", "zany", "wacky", "crazy", "tongue") to listOf("🤪", "😜", "😝", "😛", "🤓"),
         listOf("think", "thinking", "hmm", "idea", "consider") to listOf("🤔", "💭", "🧐", "💡"),
         listOf("sleep", "tired", "sleepy", "yawn", "zzz", "bored") to listOf("😴", "🥱", "😪", "💤"),
         listOf("sick", "ill", "fever", "nausea", "mask") to listOf("🤒", "🤢", "🤮", "😷"),
@@ -87,7 +88,10 @@ object EmojiSearchIndex {
         val out = LinkedHashSet<String>()
         for ((keys, emojis) in groups) {
             val hit = keys.any { key ->
-                key == q || key.contains(q) || q.contains(key) ||
+                // The `q.contains(key)` rule needs a length floor, otherwise a short
+                // key matches as a substring of an unrelated word (e.g. "ill" in
+                // "silly" → sick emojis).
+                key == q || key.contains(q) || (key.length >= 4 && q.contains(key)) ||
                     tokens.any { t -> t.length >= 2 && (key.startsWith(t) || key.contains(t)) }
             }
             if (hit) out.addAll(emojis)
