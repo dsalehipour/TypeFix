@@ -149,6 +149,7 @@ private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: 
     var refresh by remember { mutableIntStateOf(0) }
     var downloadingId by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableStateOf(0f) }
+    var downloadError by remember { mutableStateOf<String?>(null) }
     val installed = remember(refresh, downloadingId) { ModelManager.installed(context) }
     val inferenceState by InferenceController.state.collectAsState()
     val scope = rememberCoroutineScopeCompat()
@@ -194,6 +195,11 @@ private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: 
                 Text(entry.label, style = MaterialTheme.typography.bodyMedium)
                 if (downloadingId == entry.id) {
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "Downloading… ${(progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else if (ModelManager.isInstalled(context, entry.id)) {
                     Text("Installed", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                 } else {
@@ -202,9 +208,11 @@ private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: 
                         onClick = {
                             downloadingId = entry.id
                             progress = 0f
+                            downloadError = null
                             scope.launch {
                                 ModelManager.download(context, entry) { progress = it }
                                     .onSuccess { settings.localModelId = entry.id }
+                                    .onFailure { downloadError = "${entry.id}: ${it.message ?: "download failed"}" }
                                 downloadingId = null
                                 refresh++
                             }
@@ -212,6 +220,9 @@ private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: 
                     ) { Text("Download (~${entry.approxSizeMb} MB)") }
                 }
             }
+        }
+        downloadError?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
         OutlinedButton(

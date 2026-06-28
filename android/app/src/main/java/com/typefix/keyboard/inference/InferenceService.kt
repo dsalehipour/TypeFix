@@ -42,7 +42,7 @@ class InferenceService : LifecycleService() {
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("TypeFix")
             .setContentText("On-device model ready")
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_typefix)
             .setOngoing(true)
             .build()
 

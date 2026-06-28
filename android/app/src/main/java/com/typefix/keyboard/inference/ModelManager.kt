@@ -33,16 +33,18 @@ object ModelManager {
      */
     val catalog: List<CatalogEntry> = listOf(
         CatalogEntry(
-            id = "gemma2-2b-it",
-            label = "Gemma 2 2B Instruct (int8, ~1.3 GB)",
-            approxSizeMb = 1300,
-            url = "https://huggingface.co/litert-community/Gemma2-2B-IT/resolve/main/gemma2-2b-it-cpu-int8.task",
+            id = "qwen2.5-0.5b",
+            label = "Qwen2.5 0.5B Instruct (int8, ~0.5 GB · fastest)",
+            approxSizeMb = 560,
+            url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/" +
+                "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         ),
         CatalogEntry(
             id = "qwen2.5-1.5b",
-            label = "Qwen2.5 1.5B Instruct (~1.6 GB)",
+            label = "Qwen2.5 1.5B Instruct (int8, ~1.6 GB · better)",
             approxSizeMb = 1600,
-            url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/qwen2.5-1.5b-instruct.task",
+            url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/" +
+                "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         ),
     )
 

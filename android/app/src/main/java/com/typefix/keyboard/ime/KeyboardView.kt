@@ -38,6 +38,8 @@ import kotlin.math.hypot
 interface KeyboardListener {
     fun onChar(text: String)
     fun onBackspace()
+    fun onBackspacePressed()
+    fun onBackspaceReleased()
     fun onEnter()
     fun onFix()
     fun onUndo()
@@ -95,6 +97,12 @@ class KeyboardView(
     private val searchQuery = StringBuilder()
     private var searchResultsRow: LinearLayout? = null
     private var searchQueryLabel: TextView? = null
+
+    // Which content panel is showing, so a toolbar icon can toggle it closed.
+    private var activePanel = "keyboard"
+
+    private var micLongPressed = false
+    private var micRunnable: Runnable? = null
 
     private val gifLoader: ImageLoader by lazy {
         ImageLoader.Builder(context).components { add(ImageDecoderDecoder.Factory()) }.build()
@@ -154,7 +162,10 @@ class KeyboardView(
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.ime()
             )
-            v.setPadding(dp(3), dp(4), dp(3), maxOf(dp(8), bars.bottom))
+            // On wide/unfolded screens leave blank space on the left/right so the
+            // keys don't run to the edges (easier for thumbs to reach).
+            val side = if (wide) dp(56) else dp(3)
+            v.setPadding(side, dp(4), side, maxOf(dp(8), bars.bottom))
             insets
         }
 
@@ -200,7 +211,7 @@ class KeyboardView(
         statusRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(colBg)
+            setBackgroundColor(color(R.color.kb_actionbar))
             visibility = GONE
             addView(statusLabel, LayoutParams(0, MATCH, 1f))
             addView(cancelButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
@@ -208,6 +219,7 @@ class KeyboardView(
         }
         buildToolbar()
         val toolbar = FrameLayout(context).apply {
+            setBackgroundColor(color(R.color.kb_actionbar))
             addView(toolbarIcons, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(statusRow, FrameLayout.LayoutParams(MATCH, MATCH))
         }
@@ -240,16 +252,53 @@ class KeyboardView(
     private fun buildBottomSystemBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
+        // Mic: tap = speech-to-text, hold = switch keyboard (replaces a separate
+        // keyboard-switch icon).
         val mic = ImageView(context).apply {
             setImageResource(R.drawable.ic_kb_mic)
             setColorFilter(colIcon)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(11), dp(9), dp(11), dp(9))
             background = drawable(R.drawable.key_flat_bg)
-            setOnClickListener { listener.onMic() }
+            setOnTouchListener { v, e -> handleMicTouch(v, e) }
         }
-        addView(mic, LayoutParams(dp(46), MATCH))
+        addView(mic, LayoutParams(dp(52), MATCH))
         addView(View(context), LayoutParams(0, MATCH, 1f))
+        // Down arrow = hide keyboard.
+        val hide = ImageView(context).apply {
+            setImageResource(R.drawable.ic_kb_arrow_down)
+            setColorFilter(colIcon)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(11), dp(9), dp(11), dp(9))
+            background = drawable(R.drawable.key_flat_bg)
+            setOnClickListener { listener.onHideKeyboard() }
+        }
+        addView(hide, LayoutParams(dp(52), MATCH))
+    }
+
+    private fun handleMicTouch(v: View, e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                v.isPressed = true
+                micLongPressed = false
+                val r = Runnable {
+                    micLongPressed = true
+                    listener.onSwitchKeyboard()
+                }
+                micRunnable = r
+                postDelayed(r, 450)
+            }
+            MotionEvent.ACTION_UP -> {
+                v.isPressed = false
+                micRunnable?.let { removeCallbacks(it) }
+                if (!micLongPressed) listener.onMic()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                v.isPressed = false
+                micRunnable?.let { removeCallbacks(it) }
+            }
+        }
+        return true
     }
 
     // ---- Status / HUD / Undo ----
@@ -321,13 +370,26 @@ class KeyboardView(
         fun add(view: View) = toolbarIcons.addView(view, LinearLayout.LayoutParams(0, MATCH, 1f))
 
         add(buildSparkle())
-        add(toolIcon(R.drawable.ic_kb_emoji, colIcon) { showEmoji() })
-        add(toolIcon(R.drawable.ic_kb_gif, colIcon) { showSearch(SearchMode.GIF) })
-        add(toolIcon(R.drawable.ic_kb_clipboard, colIcon) { showClipboard() })
+        add(toolIcon(R.drawable.ic_kb_emoji, colIcon) { togglePanel("emoji") })
+        add(toolIcon(R.drawable.ic_kb_gif, colIcon) { togglePanel("gif") })
+        add(toolIcon(R.drawable.ic_kb_clipboard, colIcon) { togglePanel("clipboard") })
         add(toolIcon(R.drawable.ic_kb_language, colIcon) { listener.onSwitchKeyboard() })
         val moreIcon = toolIcon(R.drawable.ic_kb_more, colIcon) {}
         moreIcon.setOnClickListener { showOverflowMenu(moreIcon) }
         add(moreIcon)
+    }
+
+    /** Tapping a toolbar icon opens its panel; tapping it again closes it. */
+    private fun togglePanel(name: String) {
+        if (activePanel == name) {
+            showKeyboard()
+            return
+        }
+        when (name) {
+            "emoji" -> showEmoji()
+            "gif" -> showSearch(SearchMode.GIF)
+            "clipboard" -> showClipboard()
+        }
     }
 
     /** ⋯ overflow menu: settings now lives here (plus switch/hide). */
@@ -540,6 +602,7 @@ class KeyboardView(
     private fun showKeyboard() {
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
+        activePanel = "keyboard"
         emojiSuggestedRow = null
         if (keyRows.parent !== contentContainer) {
             (keyRows.parent as? ViewGroup)?.removeView(keyRows)
@@ -551,6 +614,7 @@ class KeyboardView(
     private fun showEmoji() {
         emojiPanelOpen = true
         searchMode = SearchMode.NONE
+        activePanel = "emoji"
         (keyRows.parent as? ViewGroup)?.removeView(keyRows)
         contentContainer.removeAllViews()
         contentContainer.addView(buildEmojiPanel(), FrameLayout.LayoutParams(MATCH, WRAP))
@@ -560,6 +624,7 @@ class KeyboardView(
     private fun showClipboard() {
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
+        activePanel = "clipboard"
         emojiSuggestedRow = null
         contentContainer.removeAllViews()
         contentContainer.addView(buildClipboardPanel(), FrameLayout.LayoutParams(MATCH, WRAP))
@@ -654,6 +719,7 @@ class KeyboardView(
     private fun showSearch(mode: SearchMode) {
         searchMode = mode
         emojiPanelOpen = false
+        activePanel = if (mode == SearchMode.GIF) "gif" else "emoji"
         searchQuery.setLength(0)
         contentContainer.removeAllViews()
         (keyRows.parent as? ViewGroup)?.removeView(keyRows)
@@ -826,7 +892,7 @@ class KeyboardView(
 
     private fun numberRow(): View = row(40).apply {
         NUMBERS.forEachIndexed { i, n ->
-            addCell(this, charKey(n, R.drawable.key_flat_bg, colText, 16f, gestureEligible = false), 1f)
+            addCell(this, charKey(n, R.drawable.key_letter_bg, colText, 16f, gestureEligible = false), 1f)
             if (wide && i == 4) addCenterGap(this)
         }
     }
@@ -867,7 +933,16 @@ class KeyboardView(
             addCell(this, key, 1f)
             if (wide && i == 3) addCenterGap(this)
         }
-        addCell(this, iconKey(R.drawable.ic_kb_backspace, R.drawable.key_func_bg) { handleBackspace() }, 1.5f)
+        val backspace = ImageView(context).apply {
+            setImageResource(R.drawable.ic_kb_backspace)
+            setColorFilter(colIcon)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val p = dp(13)
+            setPadding(p, p, p, p)
+            background = drawable(R.drawable.key_func_bg)
+            setOnTouchListener { v, e -> handleBackspaceTouch(v, e) }
+        }
+        addCell(this, backspace, 1.5f)
     }
 
     private fun bottomRow(): View = row(50).apply {
@@ -876,15 +951,15 @@ class KeyboardView(
             background = drawable(R.drawable.key_func_bg)
             setOnClickListener { symbols = !symbols; renderKeys() }
         }, 1.5f)
-        addCell(this, charKey(",", R.drawable.key_flat_bg, colText, 18f, gestureEligible = false), 1f)
+        addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
         if (wide) {
-            addCell(this, spaceKey(), 2.4f)
+            addCell(this, spaceKey(), 3.6f)
             addCenterGap(this)
-            addCell(this, spaceKey(), 2.4f)
+            addCell(this, spaceKey(), 3.6f)
         } else {
             addCell(this, spaceKey(), 5f)
         }
-        addCell(this, charKey(".", R.drawable.key_flat_bg, colText, 18f, gestureEligible = false), 1f)
+        addCell(this, charKey(".", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
         addCell(this, iconKey(R.drawable.ic_kb_enter, R.drawable.key_func_bg) { handleEnter() }, 1.5f)
     }
 
@@ -972,6 +1047,22 @@ class KeyboardView(
             shifted = false
             applyShiftCase()
         }
+    }
+
+    private fun handleBackspaceTouch(v: View, e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                v.isPressed = true
+                // In search mode, backspace edits the query (single delete).
+                if (searchMode != SearchMode.NONE) handleBackspace()
+                else listener.onBackspacePressed()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                v.isPressed = false
+                if (searchMode == SearchMode.NONE) listener.onBackspaceReleased()
+            }
+        }
+        return true
     }
 
     private fun handleBackspace() {
@@ -1176,7 +1267,7 @@ class KeyboardView(
     companion object {
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-        private const val CENTER_GAP = 2.0f
+        private const val CENTER_GAP = 3.2f
 
         private val NUMBERS = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
         private val ROW1 = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")

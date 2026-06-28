@@ -14,6 +14,7 @@ import android.text.InputType
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -63,6 +64,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var correctionJob: Job? = null
     private var thinkingJob: Job? = null
     private var writingJob: Job? = null
+    private var backspaceJob: Job? = null
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var listening = false
@@ -133,12 +135,14 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         autoJob?.cancel()
+        backspaceJob?.cancel()
         cancelInFlightFix()
         keyboard?.cancelAutoCountdown()
     }
 
     override fun onDestroy() {
         autoJob?.cancel()
+        backspaceJob?.cancel()
         stopAllHaptics()
         speechRecognizer?.destroy()
         speechRecognizer = null
@@ -160,6 +164,54 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         clearLastFix()
         currentInputConnection?.deleteSurroundingText(1, 0)
         scheduleAutoCorrection()
+    }
+
+    override fun onBackspacePressed() {
+        cancelInFlightFix()
+        clearLastFix()
+        backspaceJob?.cancel()
+        backspaceJob = scope.launch {
+            currentInputConnection?.deleteSurroundingText(1, 0) // immediate (also the single-tap case)
+            delay(350) // hold threshold before auto-repeat kicks in
+            var deletedNonSpace = 0
+            var wordsDeleted = 0
+            var interval = 90L
+            while (isActive) {
+                val ic = currentInputConnection ?: break
+                if (wordsDeleted >= 2) {
+                    // After ~2 words, erase a whole word at a steady, readable pace.
+                    deleteWord(ic)
+                    delay(500)
+                } else {
+                    val ch = ic.getTextBeforeCursor(1, 0)?.lastOrNull() ?: break
+                    if (ch.isWhitespace()) {
+                        if (deletedNonSpace > 0) wordsDeleted++
+                        deletedNonSpace = 0
+                    } else {
+                        deletedNonSpace++
+                    }
+                    ic.deleteSurroundingText(1, 0)
+                    delay(interval)
+                    interval = (interval - 8).coerceAtLeast(38) // accelerate
+                }
+            }
+        }
+    }
+
+    override fun onBackspaceReleased() {
+        backspaceJob?.cancel()
+        backspaceJob = null
+        scheduleAutoCorrection()
+    }
+
+    private fun deleteWord(ic: InputConnection) {
+        val before = ic.getTextBeforeCursor(96, 0)?.toString() ?: return
+        if (before.isEmpty()) return
+        var i = before.length
+        while (i > 0 && before[i - 1].isWhitespace()) i--
+        while (i > 0 && !before[i - 1].isWhitespace()) i--
+        val count = before.length - i
+        ic.deleteSurroundingText(if (count > 0) count else 1, 0)
     }
 
     override fun onEnter() {

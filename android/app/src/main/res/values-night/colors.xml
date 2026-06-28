@@ -7,4 +7,5 @@
     <color name="kb_icon">#D6D6DA</color>
     <color name="kb_accent">#8A93FF</color>
     <color name="kb_func_active">#3A3F66</color>
+    <color name="kb_actionbar">#2C2C31</color>
 </resources>
