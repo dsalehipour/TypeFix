@@ -55,6 +55,7 @@ interface KeyboardListener {
     fun onHideKeyboard()
     fun onToggleAutoMode()
     fun onCancelFix()
+    fun onToneFix()
 }
 
 /**
@@ -77,6 +78,7 @@ class KeyboardView(
     private val statusLabel: TextView
     private val undoButton: TextView
     private val cancelButton: TextView
+    private val toneButton: TextView
     private val contentContainer: FrameLayout
     private val keyRows: LinearLayout
 
@@ -217,12 +219,29 @@ class KeyboardView(
                 showIconsBar()
             }
         }
+        toneButton = TextView(context).apply {
+            text = "Soften"
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(6), dp(16), dp(6))
+            setTextColor(colAccent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = pill(color(R.color.kb_func_active))
+            visibility = GONE
+            setOnClickListener {
+                keyHaptic()
+                listener.onToneFix()
+                showIconsBar()
+            }
+        }
         statusRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(color(R.color.kb_actionbar))
             visibility = GONE
             addView(statusLabel, LayoutParams(0, MATCH, 1f))
+            addView(toneButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
             addView(cancelButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
             addView(undoButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
         }
@@ -318,8 +337,26 @@ class KeyboardView(
         statusLabel.setTextColor(color)
         undoButton.visibility = GONE
         cancelButton.visibility = GONE
+        toneButton.visibility = GONE
         statusRow.visibility = VISIBLE
         toolbarIcons.visibility = INVISIBLE
+    }
+
+    /** "⚠ This may sound defensive · Soften" — shown when a tone issue is found. */
+    fun showTone(label: String, color: Int) {
+        removeCallbacks(revertStatus)
+        statusLabel.text = "\u26A0  $label"
+        statusLabel.setTextColor(color)
+        undoButton.visibility = GONE
+        cancelButton.visibility = GONE
+        toneButton.visibility = VISIBLE
+        statusRow.visibility = VISIBLE
+        toolbarIcons.visibility = INVISIBLE
+        postDelayed(revertStatus, 8000)
+    }
+
+    fun clearTone() {
+        if (toneButton.visibility == VISIBLE) showIconsBar()
     }
 
     fun flash(text: String, color: Int) {
@@ -335,6 +372,7 @@ class KeyboardView(
         statusLabel.text = "Thinking…"
         statusLabel.setTextColor(colAccent)
         undoButton.visibility = GONE
+        toneButton.visibility = GONE
         cancelButton.visibility = VISIBLE
         statusRow.visibility = VISIBLE
         toolbarIcons.visibility = INVISIBLE
@@ -347,6 +385,7 @@ class KeyboardView(
         statusLabel.setTextColor(color)
         undoButton.visibility = VISIBLE
         cancelButton.visibility = GONE
+        toneButton.visibility = GONE
         statusRow.visibility = VISIBLE
         toolbarIcons.visibility = INVISIBLE
         postDelayed(revertStatus, 6000)
@@ -359,6 +398,7 @@ class KeyboardView(
         statusRow.visibility = GONE
         undoButton.visibility = GONE
         cancelButton.visibility = GONE
+        toneButton.visibility = GONE
         toolbarIcons.visibility = VISIBLE
     }
 

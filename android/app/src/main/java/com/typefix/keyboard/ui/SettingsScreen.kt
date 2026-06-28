@@ -326,6 +326,9 @@ private fun SmartFeaturesCard(settings: AppSettings, snapshot: SettingsSnapshot)
         ToggleRow("GIF reactions — suggest GIFs that match your message's vibe", snapshot.gifIntentEnabled) {
             settings.gifIntentEnabled = it
         }
+        ToggleRow("Tone check — flag a defensive/cold/too-long draft, with a one-tap fix", snapshot.toneCheckEnabled) {
+            settings.toneCheckEnabled = it
+        }
     }
 }
 

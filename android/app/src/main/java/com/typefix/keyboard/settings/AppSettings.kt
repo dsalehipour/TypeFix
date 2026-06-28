@@ -36,6 +36,7 @@ class AppSettings private constructor(context: Context) {
         const val PHRASE_MEMORY = "phraseMemory"
         const val VOICE_CLEANUP = "voiceCleanup"
         const val GIF_INTENT = "gifIntent"
+        const val TONE_CHECK = "toneCheck"
         fun apiKey(provider: Provider) = "apiKey_${provider.id}"
     }
 
@@ -118,6 +119,11 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getBoolean(Keys.GIF_INTENT, false)
         set(value) { prefs.edit().putBoolean(Keys.GIF_INTENT, value).apply(); publish() }
 
+    /** Flag a draft's tone (defensive, cold, too long…) before you send. Off by default. */
+    var toneCheckEnabled: Boolean
+        get() = prefs.getBoolean(Keys.TONE_CHECK, false)
+        set(value) { prefs.edit().putBoolean(Keys.TONE_CHECK, value).apply(); publish() }
+
     var protectedWords: List<String>
         get() = prefs.getString(Keys.PROTECTED_WORDS, "")
             .orEmpty()
@@ -175,6 +181,7 @@ class AppSettings private constructor(context: Context) {
             phraseMemoryEnabled = phraseMemoryEnabled,
             voiceCleanupEnabled = voiceCleanupEnabled,
             gifIntentEnabled = gifIntentEnabled,
+            toneCheckEnabled = toneCheckEnabled,
         )
     }
 
@@ -210,4 +217,5 @@ data class SettingsSnapshot(
     val phraseMemoryEnabled: Boolean,
     val voiceCleanupEnabled: Boolean,
     val gifIntentEnabled: Boolean,
+    val toneCheckEnabled: Boolean,
 )

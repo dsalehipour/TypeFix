@@ -54,6 +54,63 @@ object Corrector {
         return Result.Fixed(cleaned, changed = cleaned != original, possibleTypo = possibleTypo)
     }
 
+    /** Tone flags the detector can return, mapped to a friendly heads-up. */
+    val toneLabels: Map<String, String> = linkedMapOf(
+        "defensive" to "This may sound defensive",
+        "cold" to "This sounds colder than you may intend",
+        "too-many-questions" to "This asks a lot at once",
+        "too-long" to "This is long for a message",
+        "over-apologizing" to "You're apologizing a lot",
+        "passive-aggressive" to "This may read passive-aggressive",
+    )
+
+    /** Returns a tone flag (a key of [toneLabels]) for [text], or null if it's fine. */
+    suspend fun checkTone(context: Context, text: String, s: SettingsSnapshot): String? {
+        if (text.trim().length < 12) return null
+        val engine = try {
+            engineFor(context, s) ?: return null
+        } catch (t: Throwable) {
+            return null
+        }
+        val prompt = "You check the tone of a short draft message. Reply with ONE label that " +
+            "best applies, or 'none' if the tone is fine. Labels: defensive, cold, " +
+            "too-many-questions, too-long, over-apologizing, passive-aggressive, none. " +
+            "Output ONLY the label."
+        val raw = try {
+            engine.generate(prompt, text)
+        } catch (t: Throwable) {
+            return null
+        }
+        val norm = raw.lowercase().replace(' ', '-')
+        return toneLabels.keys.firstOrNull { norm.contains(it) }
+    }
+
+    /** Rewrites [text] to fix the given tone [flag]. */
+    suspend fun rewriteForTone(context: Context, text: String, flag: String, s: SettingsSnapshot): String? {
+        val engine = try {
+            engineFor(context, s) ?: return null
+        } catch (t: Throwable) {
+            return null
+        }
+        val guidance = when (flag) {
+            "defensive" -> "Make it sound open and non-defensive."
+            "cold" -> "Make it warmer and friendlier."
+            "too-many-questions" -> "Keep only the single most important question."
+            "too-long" -> "Make it much shorter and to the point."
+            "over-apologizing" -> "Remove excessive apologies; keep it kind but confident."
+            "passive-aggressive" -> "Make it direct and neutral, not passive-aggressive."
+            else -> "Improve the tone."
+        }
+        val prompt = "Rewrite the message to fix its tone. $guidance Keep the meaning and key " +
+            "details. Output ONLY the rewritten message, nothing else."
+        val raw = try {
+            engine.generate(prompt, text)
+        } catch (t: Throwable) {
+            return null
+        }
+        return CorrectionText.clean(raw, text).ifBlank { null }
+    }
+
     /** Rewrites a rambling voice transcript into a concise written message. */
     suspend fun cleanupVoice(context: Context, transcript: String, s: SettingsSnapshot): String? {
         if (transcript.isBlank()) return null

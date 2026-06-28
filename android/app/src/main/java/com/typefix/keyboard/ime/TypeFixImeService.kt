@@ -65,6 +65,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var thinkingJob: Job? = null
     private var writingJob: Job? = null
     private var backspaceJob: Job? = null
+    private var toneJob: Job? = null
+    private var toneTarget: String? = null
+    private var toneFlag: String? = null
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var listening = false
@@ -136,6 +139,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         super.onFinishInputView(finishingInput)
         autoJob?.cancel()
         backspaceJob?.cancel()
+        toneJob?.cancel()
         cancelInFlightFix()
         keyboard?.cancelAutoCountdown()
     }
@@ -143,6 +147,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onDestroy() {
         autoJob?.cancel()
         backspaceJob?.cancel()
+        toneJob?.cancel()
         stopAllHaptics()
         speechRecognizer?.destroy()
         speechRecognizer = null
@@ -155,9 +160,11 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onChar(text: String) {
         cancelInFlightFix()
         clearLastFix()
+        keyboard?.clearTone()
         currentInputConnection?.commitText(text, 1)
         recordWordIfBoundary(text)
         scheduleAutoCorrection()
+        scheduleToneCheck()
     }
 
     /** Feeds completed words to phrase memory so niche vocabulary gets learned. */
@@ -178,8 +185,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onBackspace() {
         cancelInFlightFix()
         clearLastFix()
+        keyboard?.clearTone()
         currentInputConnection?.deleteSurroundingText(1, 0)
         scheduleAutoCorrection()
+        scheduleToneCheck()
     }
 
     override fun onBackspacePressed() {
@@ -254,6 +263,44 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         stopAllHaptics()
         correcting = false
         keyboard?.flash("Cancelled", gray)
+    }
+
+    override fun onToneFix() {
+        val target = toneTarget ?: return
+        val flag = toneFlag ?: return
+        keyboard?.setStatus("Rewriting…", accent)
+        scope.launch {
+            try {
+                val rewritten = Corrector.rewriteForTone(applicationContext, target, flag, settings.snapshot())
+                if (rewritten != null && rewritten != target && replaceTrailing(target, rewritten)) {
+                    lastOriginal = target
+                    lastCorrected = rewritten
+                    keyboard?.showUndo("Toned down", green)
+                } else {
+                    keyboard?.flash("Couldn't rewrite", orange)
+                }
+            } finally {
+                toneTarget = null
+                toneFlag = null
+            }
+        }
+    }
+
+    /** When tone check is on, flag the draft's tone a moment after you pause typing. */
+    private fun scheduleToneCheck() {
+        val s = settings.snapshot()
+        if (!s.toneCheckEnabled || isSecureField) return
+        toneJob?.cancel()
+        toneJob = scope.launch {
+            delay(1300)
+            val before = currentInputConnection?.getTextBeforeCursor(MAX_CONTEXT, 0)?.toString() ?: return@launch
+            val target = before.substringAfterLast('\n').trim()
+            if (target.length < 12) return@launch
+            val flag = Corrector.checkTone(applicationContext, target, s) ?: return@launch
+            toneTarget = target
+            toneFlag = flag
+            keyboard?.showTone(Corrector.toneLabels[flag] ?: return@launch, orange)
+        }
     }
 
     override fun onUndo() {
