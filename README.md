@@ -21,9 +21,42 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/dsalehipour/typefix/releases/download/android-v0.1.0/TypeFix-Keyboard.apk">
+    <img src="https://img.shields.io/badge/Download%20TypeFix%20Keyboard%20for%20Android-.apk-3ddc84?style=for-the-badge&logo=android&logoColor=white" alt="Download TypeFix Keyboard for Android (.apk)">
+  </a>
+  <br>
+  <sub>Sideload the Android keyboard. Android 9+ · <a href="https://github.com/dsalehipour/typefix/releases">all releases</a> · <a href="android/README.md">Android docs</a></sub>
+</p>
+
+<p align="center">
   Lives quietly in your menu bar. Bring your own cloud key, or run a model
   <b>fully on-device</b>, so your words never leave your Mac.
 </p>
+
+---
+
+## 📱 TypeFix Keyboard for Android
+
+The same idea as a **soft keyboard** for Android: type fast and sloppy, tap the
+**✨ Fix** key (or let it auto-fix when you pause), and it rewrites the line in
+place using an on-device LLM or your cloud key. Plus a Samsung-style layout,
+emoji search, GIF search, swipe typing, and haptics.
+
+**Get it on your phone (2 minutes):**
+
+1. On your **Android phone**, open this repo's
+   **[Releases page](https://github.com/dsalehipour/typefix/releases)** (sign in
+   to GitHub if prompted) and tap
+   **[TypeFix-Keyboard.apk](https://github.com/dsalehipour/typefix/releases/download/android-v0.1.0/TypeFix-Keyboard.apk)**
+   to download it.
+2. Open the downloaded file. Android will ask to **allow installs from this
+   source** — enable it, then tap **Install**.
+3. Open **TypeFix**, tap **Enable TypeFix keyboard**, then **Switch to TypeFix**.
+4. (Optional) For on-device corrections, download a model in Settings, or paste a
+   cloud API key. For GIFs, paste a free Tenor key.
+
+Full Android details (build from source, features, settings) are in
+**[android/README.md](android/README.md)**.
 
 ---
 

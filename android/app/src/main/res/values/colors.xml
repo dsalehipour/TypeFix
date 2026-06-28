@@ -1,0 +1,10 @@
+<resources>
+    <color name="kb_bg">#E8EAEE</color>
+    <color name="kb_key_letter">#FFFFFF</color>
+    <color name="kb_key_func">#CBCFD6</color>
+    <color name="kb_key_text">#1C1C1E</color>
+    <color name="kb_key_text_secondary">#74747B</color>
+    <color name="kb_icon">#3C3C43</color>
+    <color name="kb_accent">#4C5BF0</color>
+    <color name="kb_func_active">#DDE2FF</color>
+</resources>
