@@ -1,3 +1,3 @@
-# Keep MediaPipe GenAI classes (loaded via JNI / reflection).
--keep class com.google.mediapipe.** { *; }
--dontwarn com.google.mediapipe.**
+# Keep LiteRT-LM classes (loaded via JNI / reflection).
+-keep class com.google.ai.edge.litertlm.** { *; }
+-dontwarn com.google.ai.edge.litertlm.**

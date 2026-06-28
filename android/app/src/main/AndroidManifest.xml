@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <queries>
         <intent>
@@ -22,6 +23,13 @@
         android:largeHeap="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.TypeFix">
+
+        <!-- Optional GPU acceleration libs for LiteRT-LM (absent on many devices/
+             emulators, hence required=false — we fall back to CPU). -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <uses-native-library android:name="libGLES_mali.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
 
         <activity
             android:name=".ui.SettingsActivity"
@@ -68,6 +76,12 @@
              survives the keyboard opening and closing. -->
         <service
             android:name=".inference.InferenceService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Keeps multi-GB model downloads running with the screen off. -->
+        <service
+            android:name=".inference.ModelDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

@@ -2,50 +2,50 @@ package com.typefix.keyboard.inference
 
 import android.content.Context
 import android.util.Log
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
-import com.typefix.keyboard.correction.CorrectionText
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * On-device LLM via Google's MediaPipe LLM Inference API. Loads a `.task` model
- * (Gemma / Qwen / Phi exported for MediaPipe) from local storage and runs fully
- * offline. Temperature is pinned to 0 to match TypeFix's deterministic fixes.
+ * On-device LLM via Google's **LiteRT-LM**. This runs the official `.litertlm`
+ * builds (the same Qwen3 family the macOS app uses) — LiteRT-LM ships the model's
+ * own HuggingFace tokenizer and chat template, so we just pass a system prompt +
+ * the raw user text and get back clean answer text (no manual ChatML, no special
+ * tokens leaking, no runaway generation).
  *
- * Runs on the CPU (XNNPACK) by default. The GPU backend crashes *natively* on
- * many devices/drivers — and a native crash can't be caught, so it takes the
- * whole keyboard process down. CPU is dramatically more stable; PrivateLM made
- * the same call. GPU stays available behind [preferGpu] for opt-in testing.
+ * GPU is preferred (a 4B model is painfully slow on CPU) with a CPU fallback for
+ * devices/emulators without a usable OpenCL driver.
  */
 class LocalLlmEngine private constructor(
-    private val llm: LlmInference,
+    private val engine: Engine,
     val backend: String,
-    private val modelPath: String,
 ) : InferenceEngine {
-
-    private val isQwen3 = modelPath.contains("qwen3", ignoreCase = true)
 
     override suspend fun generate(systemPrompt: String, text: String): String =
         withContext(Dispatchers.Default) {
-            val session = LlmInferenceSession.createFromOptions(
-                llm,
-                LlmInferenceSession.LlmInferenceSessionOptions.builder()
-                    .setTopK(40)
-                    .setTopP(0.9f)
-                    .setTemperature(0f)
-                    .build()
+            val config = ConversationConfig(
+                systemInstruction = Contents.of(systemPrompt),
+                // Greedy decoding → deterministic corrections (topK = 1). The
+                // recommended model (Qwen3-4B-Instruct-2507) is non-reasoning; for
+                // hybrid Qwen3 builds any <think> block is stripped by clean().
+                samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 1.0),
             )
-            try {
-                session.addQueryChunk(CorrectionText.singlePrompt(systemPrompt, text, noThink = isQwen3))
-                session.generateResponse()
-            } finally {
-                session.close()
+            engine.createConversation(config).use { conversation ->
+                val response = conversation.sendMessage(text)
+                response.contents.contents
+                    .filterIsInstance<Content.Text>()
+                    .joinToString("") { it.text }
             }
         }
 
     override fun close() {
-        runCatching { llm.close() }
+        runCatching { engine.close() }
     }
 
     companion object {
@@ -55,26 +55,25 @@ class LocalLlmEngine private constructor(
         suspend fun load(
             context: Context,
             modelPath: String,
-            maxTokens: Int = 512,
-            preferGpu: Boolean = false,
+            preferGpu: Boolean = true,
         ): LocalLlmEngine = withContext(Dispatchers.Default) {
-            fun build(backend: LlmInference.Backend): LlmInference {
-                val options = LlmInference.LlmInferenceOptions.builder()
-                    .setModelPath(modelPath)
-                    .setMaxTokens(maxTokens)
-                    .setPreferredBackend(backend)
-                    .build()
-                return LlmInference.createFromOptions(context, options)
+            val cacheDir = context.cacheDir.absolutePath
+            fun build(backend: Backend, name: String): LocalLlmEngine {
+                val engine = Engine(
+                    EngineConfig(modelPath = modelPath, backend = backend, cacheDir = cacheDir)
+                )
+                engine.initialize()
+                return LocalLlmEngine(engine, name)
             }
 
             if (preferGpu) {
                 try {
-                    return@withContext LocalLlmEngine(build(LlmInference.Backend.GPU), "gpu", modelPath)
+                    return@withContext build(Backend.GPU(), "gpu")
                 } catch (t: Throwable) {
                     Log.w(TAG, "GPU backend failed, falling back to CPU", t)
                 }
             }
-            LocalLlmEngine(build(LlmInference.Backend.CPU), "cpu", modelPath)
+            build(Backend.CPU(), "cpu")
         }
     }
 }

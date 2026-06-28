@@ -33,8 +33,8 @@ enum class Provider(
     /** Default model id sent to the backend when the user hasn't picked one. */
     val defaultModel: String
         get() = when (this) {
-            // A small on-device model id; the actual file is resolved by ModelManager.
-            LOCAL -> "gemma2-2b-it"
+            // An on-device model id; the actual file is resolved by ModelManager.
+            LOCAL -> "qwen3-4b-instruct"
             OPENAI -> "gpt-5.4-mini"
             ANTHROPIC -> "claude-sonnet-4-6"
             CUSTOM -> "qwen2.5:1.5b"

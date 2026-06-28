@@ -24,6 +24,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
+        // LiteRT-LM ships large native libs; arm64 covers all modern phones (and
+        // the Apple-silicon arm64 emulator), keeping the APK from ballooning.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
@@ -41,10 +44,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -54,6 +53,12 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
@@ -75,10 +80,10 @@ dependencies {
     implementation(libs.coil)
     implementation(libs.coil.gif)
 
-    // On-device LLM (Gemma / Qwen .task models). This is Google's documented
-    // MediaPipe LLM Inference API — the productized sibling of the LiteRT-LM /
-    // llama.cpp stacks that PrivateLM uses. Swap-able behind InferenceEngine.
-    implementation(libs.mediapipe.tasks.genai)
+    // On-device LLM via Google's LiteRT-LM. Unlike the MediaPipe `.task` API,
+    // this runs the official `.litertlm` builds (with their HuggingFace
+    // tokenizers), so the same Qwen3 family as the macOS app works on Android.
+    implementation(libs.litertlm.android)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

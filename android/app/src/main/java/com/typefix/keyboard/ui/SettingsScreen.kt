@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.typefix.keyboard.inference.InferenceController
+import com.typefix.keyboard.inference.ModelDownloads
 import com.typefix.keyboard.inference.ModelManager
 import com.typefix.keyboard.model.CorrectionMode
 import com.typefix.keyboard.model.Provider
@@ -152,13 +154,23 @@ private fun ProviderCard(settings: AppSettings, current: Provider) {
 @Composable
 private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: String) {
     var refresh by remember { mutableIntStateOf(0) }
-    var downloadingId by remember { mutableStateOf<String?>(null) }
-    var progress by remember { mutableStateOf(0f) }
-    var downloadError by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<String?>(null) }
-    val installed = remember(refresh, downloadingId) { ModelManager.installed(context) }
+    val download by ModelDownloads.state.collectAsState()
+    val installed = remember(refresh, download.id) { ModelManager.installed(context) }
     val inferenceState by InferenceController.state.collectAsState()
     val scope = rememberCoroutineScopeCompat()
+
+    // Auto-select a model once its download finishes (even if it finished while
+    // the user was on another screen).
+    var lastDownloading by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(download.id) {
+        val finished = lastDownloading
+        lastDownloading = download.id
+        if (download.id == null && finished != null && ModelManager.isInstalled(context, finished)) {
+            if (settings.localModelId.isBlank()) settings.localModelId = finished
+            refresh++
+        }
+    }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -229,45 +241,50 @@ private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: 
         }
 
         Text("Download", style = MaterialTheme.typography.labelLarge)
+        Text(
+            "Big downloads keep going with the screen off (a notification shows " +
+                "progress) and resume on their own if the connection drops.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         ModelManager.catalog.forEach { entry ->
             Column(Modifier.fillMaxWidth()) {
                 Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                if (downloadingId == entry.id) {
-                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                    Text(
-                        "Downloading… ${(progress * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                val partialMb = (ModelManager.partialBytes(context, entry) / 1_000_000L).toInt()
+                if (download.id == entry.id) {
+                    LinearProgressIndicator(progress = { download.progress }, modifier = Modifier.fillMaxWidth())
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Downloading… ${(download.progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { ModelDownloads.cancel(context) }) { Text("Pause") }
+                    }
                 } else if (ModelManager.isInstalled(context, entry.id)) {
                     Text("Installed", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                 } else {
                     FilledTonalButton(
-                        enabled = downloadingId == null,
-                        onClick = {
-                            downloadingId = entry.id
-                            progress = 0f
-                            downloadError = null
-                            scope.launch {
-                                ModelManager.download(context, entry) { progress = it }
-                                    .onSuccess { settings.localModelId = entry.id }
-                                    .onFailure { downloadError = "${entry.id}: ${it.message ?: "download failed"}" }
-                                downloadingId = null
-                                refresh++
-                            }
-                        },
-                    ) { Text("Download (~${entry.approxSizeMb} MB)") }
+                        enabled = !download.active,
+                        onClick = { ModelDownloads.start(context, entry) },
+                    ) {
+                        Text(
+                            if (partialMb > 0) "Resume (~$partialMb of ${entry.approxSizeMb} MB)"
+                            else "Download (~${entry.approxSizeMb} MB)"
+                        )
+                    }
                 }
             }
         }
-        downloadError?.let {
+        download.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
         OutlinedButton(
             onClick = { importLauncher.launch(arrayOf("*/*")) },
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Import a .task model file") }
+        ) { Text("Import a .litertlm model file") }
     }
 }
 

@@ -3,11 +3,13 @@ package com.typefix.keyboard.inference
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Resolves and manages on-device model files (MediaPipe `.task`). Models are
@@ -17,24 +19,27 @@ import java.util.concurrent.TimeUnit
  */
 object ModelManager {
 
-    /** A downloadable on-device model. [ext] is the on-disk file extension —
-     *  `task` (MediaPipe bundle) or `litertlm` (LiteRT-LM, used by Qwen3). */
+    /** A downloadable on-device model. [ext] is the on-disk file extension
+     *  (`litertlm` for the LiteRT-LM runtime). */
     data class CatalogEntry(
         val id: String,
         val label: String,
         val approxSizeMb: Int,
         val url: String,
-        val ext: String = "task",
+        val ext: String = "litertlm",
     )
 
-    /** Recognized on-device model file extensions, in lookup order. */
-    private val MODEL_EXTS = listOf("litertlm", "task")
+    /**
+     * Recognized on-device model file extension. We run LiteRT-LM `.litertlm`
+     * builds (which carry the model's own HuggingFace tokenizer + chat template).
+     */
+    private val MODEL_EXTS = listOf("litertlm")
 
     /**
-     * Suggested instruct models for on-device use. Qwen3 (LiteRT-LM `.litertlm`)
-     * matches the macOS app's Qwen3 family and is the better choice; Qwen2.5
-     * (`.task`) stays as a lighter, older option. URLs point at Hugging Face;
-     * importing a file you already have is also supported (see [importModel]).
+     * On-device instruct models, all LiteRT-LM `.litertlm`. Qwen3 matches the
+     * macOS app's family; 4B-Instruct-2507 is the same build the Mac runs.
+     * Larger = better but slower (and GPU-dependent on phones). URLs point at the
+     * ungated Hugging Face LiteRT Community repos.
      */
     val catalog: List<CatalogEntry> = listOf(
         CatalogEntry(
@@ -61,20 +66,6 @@ object ModelManager {
                 "qwen3_0_6b_mixed_int4.litertlm",
             ext = "litertlm",
         ),
-        CatalogEntry(
-            id = "qwen2.5-1.5b",
-            label = "Qwen2.5 1.5B Instruct (older · ~1.6 GB)",
-            approxSizeMb = 1600,
-            url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/" +
-                "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        ),
-        CatalogEntry(
-            id = "qwen2.5-0.5b",
-            label = "Qwen2.5 0.5B Instruct (older · smallest · ~0.5 GB)",
-            approxSizeMb = 560,
-            url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/" +
-                "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        ),
     )
 
     private val http: OkHttpClient by lazy {
@@ -92,7 +83,7 @@ object ModelManager {
     fun fileFor(context: Context, id: String): File {
         val dir = modelsDir(context)
         MODEL_EXTS.forEach { ext -> File(dir, "$id.$ext").let { if (it.exists()) return it } }
-        val ext = catalog.firstOrNull { it.id == id }?.ext ?: "task"
+        val ext = catalog.firstOrNull { it.id == id }?.ext ?: "litertlm"
         return File(dir, "$id.$ext")
     }
 
@@ -111,38 +102,67 @@ object ModelManager {
             ?.map { it.nameWithoutExtension }
             ?: emptyList()
 
-    /** Streams [url] to the model file, reporting progress 0f..1f. */
+    /** Bytes already fetched into the partial file for [entry] (for resume UI). */
+    fun partialBytes(context: Context, entry: CatalogEntry): Long {
+        val part = File(modelsDir(context), "${entry.id}.${entry.ext}.part")
+        return if (part.exists()) part.length() else 0L
+    }
+
+    /**
+     * Streams [entry] to its model file, reporting progress 0f..1f. The download
+     * is RESUMABLE: it keeps a `.part` file and uses an HTTP Range request to
+     * continue where it left off, so a dropped connection (screen off, app
+     * backgrounded, flaky network) doesn't throw the whole multi-GB download
+     * away. Cancellation is cooperative and leaves the `.part` in place to resume.
+     */
     suspend fun download(
         context: Context,
         entry: CatalogEntry,
         onProgress: (Float) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
-        runCatching {
-            val target = File(modelsDir(context), "${entry.id}.${entry.ext}")
-            val tmp = File(target.parentFile, "${target.name}.part")
-            val request = Request.Builder().url(entry.url).build()
-            http.newCall(request).execute().use { response ->
+        val target = File(modelsDir(context), "${entry.id}.${entry.ext}")
+        val tmp = File(target.parentFile, "${target.name}.part")
+        try {
+            var existing = if (tmp.exists()) tmp.length() else 0L
+            val builder = Request.Builder().url(entry.url)
+            if (existing > 0) builder.header("Range", "bytes=$existing-")
+
+            http.newCall(builder.build()).execute().use { response ->
+                val resuming = response.code == 206
                 if (!response.isSuccessful) error("HTTP ${response.code}")
+                // Server ignored our Range — start the file over cleanly.
+                if (!resuming && existing > 0) {
+                    tmp.delete()
+                    existing = 0
+                }
                 val body = response.body ?: error("Empty response body")
-                val total = body.contentLength().takeIf { it > 0 }
-                    ?: (entry.approxSizeMb.toLong() * 1_000_000)
+                val reported = body.contentLength()
+                val total = if (reported > 0) existing + reported
+                else entry.approxSizeMb.toLong() * 1_000_000
                 body.byteStream().use { input ->
-                    tmp.outputStream().use { output ->
+                    java.io.FileOutputStream(tmp, /* append = */ existing > 0).use { output ->
                         val buf = ByteArray(1 shl 16)
                         var read: Int
-                        var done = 0L
+                        var done = existing
+                        onProgress((done.toFloat() / total).coerceIn(0f, 1f))
                         while (input.read(buf).also { read = it } >= 0) {
+                            ensureActive() // cooperative cancel; .part is kept for resume
                             output.write(buf, 0, read)
                             done += read
                             onProgress((done.toFloat() / total).coerceIn(0f, 1f))
                         }
+                        output.flush()
                     }
                 }
             }
             if (!tmp.renameTo(target)) {
                 tmp.copyTo(target, overwrite = true); tmp.delete()
             }
-            target
+            Result.success(target)
+        } catch (c: CancellationException) {
+            throw c // keep .part, let the caller treat it as paused
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 

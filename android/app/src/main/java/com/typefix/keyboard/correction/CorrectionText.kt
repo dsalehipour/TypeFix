@@ -119,22 +119,4 @@ object CorrectionText {
         val trailingWhitespace = original.takeLastWhile { it.isWhitespace() }
         return leadingWhitespace + result + trailingWhitespace
     }
-
-    /**
-     * Builds the prompt for on-device chat models using the ChatML template that
-     * Qwen2.5 and SmolLM expect. MediaPipe does NOT apply a chat template for us,
-     * so a bare "Input:/Output:" completion prompt makes the model answer and then
-     * keep inventing more fake Input/Output pairs until it hits the token budget.
-     * Wrapping system+user in ChatML and opening the assistant turn keeps it to a
-     * single answer terminated by `<|im_end|>`, which [stripSpecialTokens] trims.
-     */
-    fun singlePrompt(systemPrompt: String, text: String, noThink: Boolean = false): String {
-        // Qwen3 is a hybrid reasoning model; "/no_think" keeps it from emitting a
-        // slow <think> block we'd only strip anyway (and which can blow the token
-        // budget on the small variants).
-        val user = if (noThink) "$text /no_think" else text
-        return "<|im_start|>system\n$systemPrompt<|im_end|>\n" +
-            "<|im_start|>user\n$user<|im_end|>\n" +
-            "<|im_start|>assistant\n"
-    }
 }
