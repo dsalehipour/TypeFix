@@ -142,6 +142,12 @@ struct OnboardingView: View {
                     detail: "Turn on Autofix from the menu bar and it fixes automatically a moment after you stop typing."
                 )
                 step(
+                    icon: "text.cursor",
+                    tint: Color(red: 0.95, green: 0.55, blue: 0.20),
+                    title: "Fix existing text: highlight, then tap \(hotkeySymbol)",
+                    detail: "Already typed something? Select any text and tap your shortcut, and TypeFix rewrites the highlighted text in place."
+                )
+                step(
                     icon: "doc.on.doc.fill",
                     tint: Color(red: 0.09, green: 0.61, blue: 0.51),
                     title: "Recover anything: ⌥⇧⌘C",

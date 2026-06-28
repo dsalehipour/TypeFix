@@ -142,22 +142,28 @@ final class CorrectionEngine {
     private func handleHotkey() {
         syncModeIfNeeded()
         guard isArmed else { return }
-        // If the user has text selected anywhere, fix that selection directly
-        // (works on already-on-screen text, not just what was just typed).
-        if fixSelectionIfPresent() { return }
-        switch mode {
-        case .manual:
-            switch state {
-            case .idle:
-                manualBuffer = ""
-                setState(.capturing)
-            case .capturing:
-                finishManual()
-            case .processing:
-                break
+        switch state {
+        case .processing:
+            return
+        case .capturing:
+            // Mid-session: finish what was typed.
+            switch mode {
+            case .manual: finishManual()
+            case .auto: flushAuto(force: true)
             }
-        case .auto:
-            flushAuto(force: true) // explicit "fix now" ignores the length threshold
+        case .idle:
+            // If the user has text highlighted anywhere, fix that selection in
+            // place. Otherwise do the mode's normal idle action.
+            attemptSelectionFix { [weak self] handled in
+                guard let self, !handled else { return }
+                switch self.mode {
+                case .manual:
+                    self.manualBuffer = ""
+                    self.setState(.capturing)
+                case .auto:
+                    self.flushAuto(force: true)
+                }
+            }
         }
     }
 
@@ -403,31 +409,58 @@ final class CorrectionEngine {
 
     // MARK: - Fix selection (Accessibility)
 
-    /// If the focused field has a non-empty selection, correct that selection in
-    /// place and return true. Returns false when there's nothing selected, so the
-    /// caller falls back to the normal type-capture behavior.
-    private func fixSelectionIfPresent() -> Bool {
-        guard state != .processing else { return false }
-        guard let selection = AccessibilityText.focusedSelection() else { return false }
+    /// Look for highlighted text to fix. Tries the Accessibility API first (native
+    /// apps), then falls back to copying the selection via Cmd+C (Electron/web
+    /// apps like Cursor). Calls `completion(true)` if a selection was found and a
+    /// fix was started, `completion(false)` if there's nothing selected.
+    private func attemptSelectionFix(completion: @escaping (Bool) -> Void) {
+        if let selection = AccessibilityText.focusedSelection() {
+            beginSelectionFix(original: selection.text, selection: selection, restoreClipboard: nil)
+            completion(true)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let grabbed = ClipboardSelection.copyCurrentSelection()
+            DispatchQueue.main.async {
+                if let grabbed {
+                    self.beginSelectionFix(original: grabbed.text, selection: nil, restoreClipboard: grabbed.restore)
+                    completion(true)
+                } else {
+                    completion(false)
+                }
+            }
+        }
+    }
+
+    private func beginSelectionFix(
+        original: String,
+        selection: AccessibilityText.Selection?,
+        restoreClipboard: String?
+    ) {
         if case .needsSetup(let message) = settings.backendReadiness {
             onError?(message)
-            return true
+            if let restoreClipboard { restorePasteboard(restoreClipboard) }
+            return
         }
-
-        let original = selection.text
-        let element = selection.element
+        revertable = nil
         setState(.processing)
 
         runCorrection(text: original) { [weak self] corrected in
             guard let self else { return }
             if corrected == original {
                 self.onNoChange?(original)
+                if let restoreClipboard { self.restorePasteboard(restoreClipboard) }
             } else {
-                if !AccessibilityText.replaceSelection(in: element, with: corrected) {
-                    // App doesn't allow setting selected text; paste over the
-                    // still-active selection instead.
-                    TextReplacer.shared.replace(deleteCount: 0, with: corrected)
+                let replacedViaAX = selection.map {
+                    AccessibilityText.replaceSelection(in: $0.element, with: corrected)
+                } ?? false
+                if replacedViaAX {
+                    if let restoreClipboard { self.restorePasteboard(restoreClipboard) }
+                } else {
+                    // Paste over the still-active selection (works in Cursor etc.).
+                    TextReplacer.shared.replaceSelectionByPasting(corrected, restoreClipboard: restoreClipboard)
                 }
+                self.revertable = (original: original, corrected: corrected)
                 let appName = NSWorkspace.shared.frontmostApplication?.localizedName
                 self.onCorrectionApplied?(
                     CorrectionRecord(original: original, corrected: corrected, appName: appName)
@@ -435,7 +468,12 @@ final class CorrectionEngine {
             }
             self.setState(.idle)
         }
-        return true
+    }
+
+    private func restorePasteboard(_ contents: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(contents, forType: .string)
     }
 
     // MARK: - Shared

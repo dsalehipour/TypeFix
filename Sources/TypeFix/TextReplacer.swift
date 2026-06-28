@@ -60,6 +60,33 @@ final class TextReplacer {
         }
     }
 
+    /// Pastes `text` over the current selection (no backspaces; the selection is
+    /// replaced by the paste). Restores `restoreClipboard` when provided (the
+    /// user's clipboard from before we copied the selection), otherwise restores
+    /// whatever was on the clipboard before this call.
+    func replaceSelectionByPasting(_ text: String, restoreClipboard: String?) {
+        queue.async {
+            let pasteboard = NSPasteboard.general
+            let toRestore = restoreClipboard ?? pasteboard.string(forType: .string)
+            let source = CGEventSource(stateID: .combinedSessionState)
+
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            let stampedChangeCount = pasteboard.changeCount
+            usleep(40_000)
+
+            self.postPaste(source: source)
+
+            usleep(450_000)
+            if pasteboard.changeCount == stampedChangeCount {
+                pasteboard.clearContents()
+                if let toRestore {
+                    pasteboard.setString(toRestore, forType: .string)
+                }
+            }
+        }
+    }
+
     private func postPaste(source: CGEventSource?) {
         if let down = CGEvent(keyboardEventSource: source, virtualKey: Key.v, keyDown: true) {
             down.flags = .maskCommand

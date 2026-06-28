@@ -635,11 +635,13 @@ struct SettingsView: View {
                         helpRow("1.circle.fill", "Just type normally in any app.")
                         helpRow("2.circle.fill", "Pause briefly, and your text is auto-corrected in place.")
                         helpRow("3.circle.fill", "Or tap both Shift keys to fix immediately.")
+                        helpRow("text.cursor", "Or highlight existing text and tap your shortcut to fix the selection.")
                         helpRow("exclamationmark.circle.fill", "Clicking, arrow keys, Enter, or Tab cancel a pending fix.")
                     } else {
                         helpRow("1.circle.fill", "Tap Left Shift + Right Shift together to begin capturing.")
                         helpRow("2.circle.fill", "Type normally; your text appears as usual.")
                         helpRow("3.circle.fill", "Tap both Shift keys again to replace it with the fix.")
+                        helpRow("text.cursor", "Or highlight existing text and tap your shortcut to fix the selection.")
                         helpRow("escape", "Press Esc while capturing to cancel.")
                     }
                 }
