@@ -64,6 +64,12 @@ object ModelManager {
     fun isInstalled(context: Context, id: String): Boolean =
         id.isNotBlank() && fileFor(context, id).let { it.exists() && it.length() > 0 }
 
+    fun fileSizeMb(context: Context, id: String): Int =
+        (fileFor(context, id).length() / 1_000_000L).toInt()
+
+    fun labelFor(id: String): String =
+        catalog.firstOrNull { it.id == id }?.label ?: id
+
     fun installed(context: Context): List<String> =
         modelsDir(context).listFiles()
             ?.filter { it.isFile && it.extension == "task" }

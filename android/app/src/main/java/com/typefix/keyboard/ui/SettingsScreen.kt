@@ -18,6 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,6 +35,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -152,6 +155,7 @@ private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: 
     var downloadingId by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableStateOf(0f) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
     val installed = remember(refresh, downloadingId) { ModelManager.installed(context) }
     val inferenceState by InferenceController.state.collectAsState()
     val scope = rememberCoroutineScopeCompat()
@@ -182,13 +186,46 @@ private fun LocalModelCard(context: Context, settings: AppSettings, selectedId: 
             installed.forEach { id ->
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     RadioButton(selected = id == selectedId, onClick = { settings.localModelId = id })
-                    Text(id, Modifier.padding(start = 4.dp).weight(1f))
-                    IconButton(onClick = { ModelManager.delete(context, id); refresh++ }) {
-                        Icon(Icons.Default.Close, contentDescription = "Delete")
+                    Column(Modifier.padding(start = 4.dp).weight(1f)) {
+                        Text(ModelManager.labelFor(id), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${ModelManager.fileSizeMb(context, id)} MB on device",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { pendingDelete = id }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete model",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
             }
             HorizontalDivider()
+        }
+
+        pendingDelete?.let { id ->
+            AlertDialog(
+                onDismissRequest = { pendingDelete = null },
+                title = { Text("Delete this model?") },
+                text = {
+                    Text("${ModelManager.labelFor(id)} (${ModelManager.fileSizeMb(context, id)} MB) will be removed. You can download it again anytime.")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        ModelManager.delete(context, id)
+                        if (settings.localModelId == id) settings.localModelId = ""
+                        InferenceController.unload()
+                        pendingDelete = null
+                        refresh++
+                    }) { Text("Delete") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                },
+            )
         }
 
         Text("Download", style = MaterialTheme.typography.labelLarge)
@@ -312,23 +349,49 @@ private fun ModeCard(
 private fun SmartFeaturesCard(settings: AppSettings, snapshot: SettingsSnapshot) {
     SectionCard("Smart features (beta)") {
         Text(
-            "All off by default. The LLM-powered ones need an on-device model or a " +
-                "cloud key set above.",
+            "All off by default. The ones marked \"Requires an AI model\" need an " +
+                "on-device model or a cloud key (set above); the rest work offline.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        ToggleRow("Phrase memory — learn your niche words & stop \"fixing\" them", snapshot.phraseMemoryEnabled) {
-            settings.phraseMemoryEnabled = it
+        SmartToggle(
+            title = "Phrase memory",
+            caption = "Works offline. Learns your niche words (company names, acronyms, products) and stops \"fixing\" them.",
+            checked = snapshot.phraseMemoryEnabled,
+        ) { settings.phraseMemoryEnabled = it }
+        SmartToggle(
+            title = "Voice note cleanup",
+            caption = "Requires an AI model. Turns rambling dictation into a tight, written message.",
+            checked = snapshot.voiceCleanupEnabled,
+        ) { settings.voiceCleanupEnabled = it }
+        SmartToggle(
+            title = "GIF reactions",
+            caption = "Works offline. Suggests GIFs that match your message's vibe.",
+            checked = snapshot.gifIntentEnabled,
+        ) { settings.gifIntentEnabled = it }
+        SmartToggle(
+            title = "Tone check",
+            caption = "Requires an AI model. Flags a defensive, cold, or too-long draft, with a one-tap fix.",
+            checked = snapshot.toneCheckEnabled,
+        ) { settings.toneCheckEnabled = it }
+    }
+}
+
+@Composable
+private fun SmartToggle(title: String, caption: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                caption,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        ToggleRow("Voice note cleanup — turn rambling dictation into a tight message", snapshot.voiceCleanupEnabled) {
-            settings.voiceCleanupEnabled = it
-        }
-        ToggleRow("GIF reactions — suggest GIFs that match your message's vibe", snapshot.gifIntentEnabled) {
-            settings.gifIntentEnabled = it
-        }
-        ToggleRow("Tone check — flag a defensive/cold/too-long draft, with a one-tap fix", snapshot.toneCheckEnabled) {
-            settings.toneCheckEnabled = it
-        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 
