@@ -21,8 +21,9 @@ productized sibling of that stack) behind a swappable `InferenceEngine`.
    from this source** the first time — enable it, then **Install**.
 3. Launch **TypeFix** → **Enable TypeFix keyboard** → **Switch to TypeFix**.
 4. Pick a backend for corrections (download an on-device model, or paste a cloud
-   API key) and, optionally, a free **KLIPY** key for GIF search — all in
-   Settings (the keyboard's **⋯ → Settings**, or the app icon).
+   API key) in Settings (the keyboard's **⋯ → Settings**, or the app icon).
+   **GIF search works out of the box** (KLIPY key built in); you can paste your
+   own KLIPY key to override it.
 
 > Requires **Android 9 (API 28)+**. This is a debug-signed build for sideloading,
 > so Android shows the usual "unknown source" prompt — that's expected.

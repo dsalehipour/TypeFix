@@ -299,9 +299,9 @@ private fun ModeCard(
 private fun GifCard(settings: AppSettings, klipyApiKey: String) {
     SectionCard("GIFs") {
         Text(
-            "Paste a free KLIPY API key to enable GIF search (the GIF button in " +
-                "the keyboard toolbar). Get one at partner.klipy.com — it's free " +
-                "for life (Tenor no longer accepts new accounts).",
+            "GIF search (the GIF button in the keyboard toolbar) works out of the " +
+                "box with a built-in key. Optionally paste your own KLIPY key " +
+                "(partner.klipy.com) to use instead.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

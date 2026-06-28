@@ -1,8 +1,17 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Bundled KLIPY GIF key, read from local.properties (kept out of git). The
+// built APK embeds it so GIF search works without the user pasting a key.
+val klipyApiKey: String = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}.getProperty("KLIPY_API_KEY", "")
 
 android {
     namespace = "com.typefix.keyboard"
@@ -14,6 +23,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
     }
 
     buildTypes {
@@ -37,6 +47,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

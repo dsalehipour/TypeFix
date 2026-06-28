@@ -53,7 +53,7 @@ emoji search, GIF search, swipe typing, and haptics.
    source** — enable it, then tap **Install**.
 3. Open **TypeFix**, tap **Enable TypeFix keyboard**, then **Switch to TypeFix**.
 4. (Optional) For on-device corrections, download a model in Settings, or paste a
-   cloud API key. For GIFs, paste a free KLIPY key (partner.klipy.com).
+   cloud API key. **GIF search works out of the box** (KLIPY, built in).
 
 Full Android details (build from source, features, settings) are in
 **[android/README.md](android/README.md)**.

@@ -20,6 +20,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.inputmethod.EditorInfoCompat
 import androidx.core.view.inputmethod.InputConnectionCompat
 import androidx.core.view.inputmethod.InputContentInfoCompat
+import com.typefix.keyboard.BuildConfig
 import com.typefix.keyboard.R
 import com.typefix.keyboard.inference.Corrector
 import com.typefix.keyboard.inference.GifClient
@@ -264,19 +265,23 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onGifPanelShown() {
-        val key = settings.snapshot().klipyApiKey
+        val key = klipyKey()
         if (key.isBlank()) {
-            keyboard?.flash("Add a free KLIPY key in Settings", orange)
+            keyboard?.flash("GIF search unavailable", orange)
             return
         }
         scope.launch { keyboard?.setGifResults(GifClient.featured(key)) }
     }
 
     override fun onGifSearchQuery(query: String) {
-        val key = settings.snapshot().klipyApiKey
+        val key = klipyKey()
         if (key.isBlank()) return
         scope.launch { keyboard?.setGifResults(GifClient.search(query, key)) }
     }
+
+    /** The user's own KLIPY key if set, otherwise the bundled one. */
+    private fun klipyKey(): String =
+        settings.snapshot().klipyApiKey.ifBlank { BuildConfig.KLIPY_API_KEY }
 
     override fun onGifSelected(gifUrl: String) {
         scope.launch { insertGif(gifUrl) }
