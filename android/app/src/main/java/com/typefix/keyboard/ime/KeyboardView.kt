@@ -100,6 +100,15 @@ class KeyboardView(
 
     // Which content panel is showing, so a toolbar icon can toggle it closed.
     private var activePanel = "keyboard"
+    private var searchCaretOn = true
+    private val caretBlink = object : Runnable {
+        override fun run() {
+            searchCaretOn = !searchCaretOn
+            renderSearchLabel()
+            postDelayed(this, 500)
+        }
+    }
+    private var gifLoadingAnimator: ValueAnimator? = null
 
     private var micLongPressed = false
     private var micRunnable: Runnable? = null
@@ -416,7 +425,7 @@ class KeyboardView(
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setPadding(dp(16), dp(12), dp(16), dp(12))
                 background = drawable(R.drawable.key_flat_bg)
-                setOnClickListener { popup.dismiss(); action() }
+                setOnClickListener { keyHaptic(); popup.dismiss(); action() }
             }, LinearLayout.LayoutParams(MATCH, WRAP))
         }
         popup.showAsDropDown(anchor, -dp(150), 0)
@@ -758,6 +767,10 @@ class KeyboardView(
         container.addView(keyRows, LayoutParams(MATCH, WRAP))
         contentContainer.addView(container, FrameLayout.LayoutParams(MATCH, WRAP))
 
+        searchCaretOn = true
+        removeCallbacks(caretBlink)
+        postDelayed(caretBlink, 500)
+
         if (mode == SearchMode.GIF) listener.onGifPanelShown()
         updateSearch()
     }
@@ -766,13 +779,28 @@ class KeyboardView(
         searchMode = SearchMode.NONE
         searchResultsRow = null
         searchQueryLabel = null
-        showEmoji()
+        removeCallbacks(caretBlink)
+        gifLoadingAnimator?.cancel()
+        // The ✕ on any panel search returns to the normal keyboard.
+        showKeyboard()
+    }
+
+    private fun renderSearchLabel() {
+        val label = searchQueryLabel ?: return
+        val q = searchQuery.toString()
+        val caret = if (searchCaretOn) "|" else " "
+        if (q.isEmpty()) {
+            label.text = "\uD83D\uDD0D  $caret"
+            label.setTextColor(colTextSecondary)
+        } else {
+            label.text = "\uD83D\uDD0D  $q$caret"
+            label.setTextColor(colText)
+        }
     }
 
     private fun updateSearch() {
+        renderSearchLabel()
         val q = searchQuery.toString()
-        searchQueryLabel?.text = if (q.isEmpty()) searchHint() else q
-        searchQueryLabel?.setTextColor(if (q.isEmpty()) colTextSecondary else colText)
         when (searchMode) {
             SearchMode.EMOJI -> {
                 renderEmojiResults(EmojiSearchIndex.search(q))
@@ -788,10 +816,46 @@ class KeyboardView(
         if (searchMode == SearchMode.EMOJI && results.isNotEmpty()) renderEmojiResults(results)
     }
 
-    /** GIF results (Tenor) from the IME. */
+    /** Shimmering placeholder tiles while GIFs are being fetched. */
+    fun setGifLoading() {
+        if (searchMode != SearchMode.GIF) return
+        val row = searchResultsRow ?: return
+        gifLoadingAnimator?.cancel()
+        row.removeAllViews()
+        val tiles = mutableListOf<View>()
+        repeat(5) {
+            val tile = View(context).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(color(R.color.kb_key_func))
+                }
+                alpha = 0.35f
+            }
+            tiles.add(tile)
+            row.addView(tile, LinearLayout.LayoutParams(dp(150), MATCH).apply { marginEnd = dp(4) })
+        }
+        // A wave of pulsing opacity across the tiles ("shimmer").
+        gifLoadingAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 900
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener { a ->
+                val t = a.animatedFraction
+                tiles.forEachIndexed { i, tile ->
+                    val phase = (t + i * 0.18f) % 1f
+                    tile.alpha = 0.25f + 0.45f * (1f - kotlin.math.abs(0.5f - phase) * 2f)
+                }
+            }
+            start()
+        }
+    }
+
+    /** GIF results from the IME. */
     fun setGifResults(results: List<GifClient.Gif>) {
         if (searchMode != SearchMode.GIF) return
         val row = searchResultsRow ?: return
+        gifLoadingAnimator?.cancel()
+        gifLoadingAnimator = null
         row.removeAllViews()
         results.forEach { gif ->
             row.addView(ImageView(context).apply {
@@ -1049,6 +1113,15 @@ class KeyboardView(
         }
     }
 
+    /** Very light tick on every press anywhere on the keyboard (keys, toolbar,
+     *  panels, results). One tick per finger-down. Respects the vibration setting. */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) keyHaptic()
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun keyHaptic() = Haptics.tick(context, 6, 22)
+
     private fun handleBackspaceTouch(v: View, e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -1164,6 +1237,7 @@ class KeyboardView(
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
                 background = drawable(R.drawable.key_flat_bg)
                 setOnClickListener {
+                    keyHaptic()
                     listener.onChar(if (shifted) opt.uppercase() else opt)
                     if (shifted && baseChar.length == 1 && baseChar[0] in 'a'..'z') {
                         shifted = false; applyShiftCase()

@@ -322,12 +322,14 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             keyboard?.flash("GIF search unavailable", orange)
             return
         }
+        keyboard?.setGifLoading()
         scope.launch { keyboard?.setGifResults(GifClient.featured(key)) }
     }
 
     override fun onGifSearchQuery(query: String) {
         val key = klipyKey()
         if (key.isBlank()) return
+        keyboard?.setGifLoading()
         scope.launch { keyboard?.setGifResults(GifClient.search(query, key)) }
     }
 
