@@ -76,6 +76,18 @@ enum CorrectionText {
     Output: I'll be OOO next week, pls don't merge the branch
     """
 
+    /// The system prompt plus an instruction to never alter the user's protected
+    /// words/names (their personal dictionary).
+    static func composedPrompt(protectedWords: [String]) -> String {
+        let cleaned = protectedWords
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !cleaned.isEmpty else { return systemPrompt }
+        return systemPrompt
+            + "\n\nAlways keep these words and names EXACTLY as written, never changing, "
+            + "splitting, or \"fixing\" them: " + cleaned.joined(separator: ", ") + "."
+    }
+
     private static let quoteCharacters: Set<Character> = [
         "\"", "'", "`", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}",
     ]

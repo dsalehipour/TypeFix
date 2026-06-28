@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 /// Installs a session-level CGEventTap to observe keystrokes and mouse clicks.
 ///
@@ -26,6 +27,12 @@ final class KeyEventTap {
     var onTab: (() -> Void)?
     var onCancel: (() -> Void)?
     var onNavigation: (() -> Void)?
+    var onRevert: (() -> Void)?
+    /// Whether there's a fresh correction to revert (so ⌘⇧Z only intercepts when useful).
+    var canRevert: () -> Bool = { false }
+    /// Any real key the user presses (used to invalidate a pending revert), even
+    /// when not capturing.
+    var onUserInput: (() -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -100,10 +107,24 @@ final class KeyEventTap {
             return Unmanaged.passUnretained(event)
         }
 
+        // Never capture in password / secure-input fields: don't read or send them
+        // anywhere, and abandon any pending capture so a queued fix can't fire into
+        // the secure field.
+        if (type == .keyDown || type == .flagsChanged), IsSecureEventInputEnabled() {
+            if shouldCapture() { onNavigation?() }
+            return Unmanaged.passUnretained(event)
+        }
+
         switch type {
         case .flagsChanged:
             handleFlagsChanged(event)
         case .keyDown:
+            // ⌘⇧Z reverts the last fix, but only intercept it when there's
+            // something to revert (otherwise let apps use it for redo).
+            if isRevertShortcut(event), canRevert() {
+                onRevert?()
+                return nil
+            }
             // ⌘⇧C copies the last original text; swallow it.
             if isCopyLastShortcut(event) {
                 onCopyLast?()
@@ -115,6 +136,7 @@ final class KeyEventTap {
                 onHotkey?()
                 return nil
             }
+            if isArmed() { onUserInput?() } // any other key invalidates a pending revert
             if shouldCapture() { classifyKeyDown(event) }
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             if shouldCapture() { onNavigation?() }
@@ -131,6 +153,14 @@ final class KeyEventTap {
         guard keyCode == 8 else { return false } // 'c'
         let relevant: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
         return event.flags.intersection(relevant) == [.maskCommand, .maskShift, .maskAlternate]
+    }
+
+    private func isRevertShortcut(_ event: CGEvent) -> Bool {
+        guard isArmed() else { return false }
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        guard keyCode == 6 else { return false } // 'z'
+        let relevant: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+        return event.flags.intersection(relevant) == [.maskCommand, .maskShift]
     }
 
     private func isHotkeyComboMatch(_ event: CGEvent) -> Bool {

@@ -36,6 +36,7 @@ struct SettingsView: View {
     @State private var testInput = "whjkat m,ios th best thign swe dcan do to incmprve our converospn rates."
     @State private var testOutput = ""
     @State private var isTesting = false
+    @State private var newProtectedWord = ""
 
     private let corrector = TextCorrector()
     private let permissionTimer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
@@ -606,6 +607,28 @@ struct SettingsView: View {
             }
 
             card {
+                sectionLabel("Personal Dictionary")
+                caption("Words and names TypeFix should never change, split, or flag, like your product names, jargon, or handles.")
+                HStack(spacing: 8) {
+                    TextField("Add a word or name", text: $newProtectedWord)
+                        .fieldChrome()
+                        .onSubmit { addProtectedWord() }
+                    Button("Add") { addProtectedWord() }
+                        .buttonStyle(SecondaryButtonStyle())
+                        .disabled(newProtectedWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if settings.protectedWords.isEmpty {
+                    caption("No protected words yet.")
+                } else {
+                    ProtectedWordsFlow(words: settings.protectedWords) { word in
+                        if let index = settings.protectedWords.firstIndex(of: word) {
+                            settings.removeProtectedWords(IndexSet(integer: index))
+                        }
+                    }
+                }
+            }
+
+            card {
                 sectionLabel("How It Works")
                 VStack(alignment: .leading, spacing: 10) {
                     if settings.correctionMode == .auto {
@@ -746,9 +769,85 @@ struct SettingsView: View {
         }
     }
 
+    private func addProtectedWord() {
+        settings.addProtectedWord(newProtectedWord)
+        newProtectedWord = ""
+    }
+
     private func openAccessibilitySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
+    }
+}
+
+/// Removable chips for the personal dictionary, wrapped across lines.
+private struct ProtectedWordsFlow: View {
+    let words: [String]
+    let onRemove: (String) -> Void
+
+    var body: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(words, id: \.self) { word in
+                HStack(spacing: 5) {
+                    Text(word)
+                        .font(.callout)
+                        .lineLimit(1)
+                    Button { onRemove(word) } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Remove")
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(Color.primary.opacity(0.08)))
+            }
+        }
+    }
+}
+
+/// A minimal wrapping layout that flows subviews left-to-right, onto new lines.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        let width = maxWidth == .infinity ? widest : maxWidth
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 

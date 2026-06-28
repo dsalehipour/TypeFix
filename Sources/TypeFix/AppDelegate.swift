@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let toggleCaptureItem = NSMenuItem(title: "", action: #selector(toggleCapture), keyEquivalent: "")
     private let autoModeItem = NSMenuItem(title: "Enable Autofix", action: #selector(toggleAutoMode), keyEquivalent: "")
     private let copyLastItem = NSMenuItem(title: "Copy last original", action: #selector(copyLastOriginal), keyEquivalent: "")
+    private let undoFixItem = NSMenuItem(title: "Undo last fix", action: #selector(undoLastFix), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -36,8 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return
             }
             let corrected = record.corrected
+            let allowed = self.settings.protectedWords
             DispatchQueue.global(qos: .userInitiated).async {
-                let flagged = TypoChecker.hasLikelyTypo(in: corrected)
+                let flagged = TypoChecker.hasLikelyTypo(in: corrected, allowing: allowed)
                 DispatchQueue.main.async {
                     var record = record
                     record.flaggedResidualTypo = flagged
@@ -59,13 +61,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.hud.flashAllGood()
                 return
             }
+            let allowed = self.settings.protectedWords
             DispatchQueue.global(qos: .userInitiated).async {
-                let flagged = TypoChecker.hasLikelyTypo(in: text)
+                let flagged = TypoChecker.hasLikelyTypo(in: text, allowing: allowed)
                 DispatchQueue.main.async {
                     flagged ? self.hud.flashPossibleTypo() : self.hud.flashAllGood()
                 }
             }
         }
+        engine.onReverted = { [weak self] in self?.hud.flashReverted() }
 
         startEngineOrRequestPermission()
         refreshUI()
@@ -130,6 +134,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         copyLastItem.keyEquivalentModifierMask = [.command, .shift, .option]
         copyLastItem.toolTip = "Copy the original text of the most recent fix, in case the correction wasn't what you wanted."
         menu.addItem(copyLastItem)
+
+        undoFixItem.target = self
+        undoFixItem.image = menuSymbol("arrow.uturn.backward")
+        undoFixItem.keyEquivalent = "z"
+        undoFixItem.keyEquivalentModifierMask = [.command, .shift]
+        undoFixItem.toolTip = "Revert the most recent fix back to what you originally typed (only right after a fix)."
+        menu.addItem(undoFixItem)
 
         menu.addItem(.separator())
 
@@ -287,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleCaptureItem.isEnabled = trusted
 
         copyLastItem.isEnabled = !history.records.isEmpty
+        undoFixItem.isEnabled = engine.canRevert()
 
         hud.hotkeySymbol = sym
         hud.update(state: engine.state, mode: engine.mode, armed: true, trusted: trusted)
@@ -336,6 +348,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pasteboard.clearContents()
         pasteboard.setString(record.original, forType: .string)
         hud.flashCopied()
+    }
+
+    @objc private func undoLastFix() {
+        guard engine.canRevert() else {
+            hud.flashInfo("Nothing to undo")
+            return
+        }
+        engine.revertLast()
     }
 
     @objc private func showOnboardingFromMenu() {

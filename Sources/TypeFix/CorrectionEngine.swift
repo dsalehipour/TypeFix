@@ -35,6 +35,12 @@ final class CorrectionEngine {
     /// Fired (with the unchanged text) when the model returned no changes, so a
     /// guardrail can still check it for a remaining typo.
     var onNoChange: ((String) -> Void)?
+    /// Fired after the last correction was reverted.
+    var onReverted: (() -> Void)?
+
+    /// The most recent applied correction, while it's still safe to revert in
+    /// place (cleared as soon as the user types, moves, or triggers anything).
+    private var revertable: (original: String, corrected: String)?
 
     // Manual mode
     private var manualBuffer = ""
@@ -63,6 +69,20 @@ final class CorrectionEngine {
         tap.onTab = { [weak self] in self?.handleTab() }
         tap.onCancel = { [weak self] in self?.handleEscape() }
         tap.onNavigation = { [weak self] in self?.handleNavigation() }
+        tap.onRevert = { [weak self] in self?.revertLast() }
+        tap.canRevert = { [weak self] in self?.revertable != nil }
+        tap.onUserInput = { [weak self] in self?.revertable = nil }
+    }
+
+    func canRevert() -> Bool { revertable != nil }
+
+    /// Undo the last applied correction in place (delete the corrected text and
+    /// re-type the original). Only valid right after a fix, before further input.
+    func revertLast() {
+        guard let revert = revertable else { return }
+        revertable = nil
+        TextReplacer.shared.replace(deleteCount: revert.corrected.count, with: revert.original)
+        onReverted?()
     }
 
     /// The app is active whenever it is running.
@@ -122,6 +142,9 @@ final class CorrectionEngine {
     private func handleHotkey() {
         syncModeIfNeeded()
         guard isArmed else { return }
+        // If the user has text selected anywhere, fix that selection directly
+        // (works on already-on-screen text, not just what was just typed).
+        if fixSelectionIfPresent() { return }
         switch mode {
         case .manual:
             switch state {
@@ -334,6 +357,7 @@ final class CorrectionEngine {
             } else {
                 let appName = NSWorkspace.shared.frontmostApplication?.localizedName
                 TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
+                self.revertable = (original: text, corrected: corrected)
                 self.onCorrectionApplied?(
                     CorrectionRecord(original: text, corrected: corrected, appName: appName)
                 )
@@ -368,6 +392,7 @@ final class CorrectionEngine {
             } else {
                 let appName = NSWorkspace.shared.frontmostApplication?.localizedName
                 TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
+                self.revertable = (original: text, corrected: corrected)
                 self.onCorrectionApplied?(
                     CorrectionRecord(original: text, corrected: corrected, appName: appName)
                 )
@@ -376,19 +401,58 @@ final class CorrectionEngine {
         }
     }
 
+    // MARK: - Fix selection (Accessibility)
+
+    /// If the focused field has a non-empty selection, correct that selection in
+    /// place and return true. Returns false when there's nothing selected, so the
+    /// caller falls back to the normal type-capture behavior.
+    private func fixSelectionIfPresent() -> Bool {
+        guard state != .processing else { return false }
+        guard let selection = AccessibilityText.focusedSelection() else { return false }
+        if case .needsSetup(let message) = settings.backendReadiness {
+            onError?(message)
+            return true
+        }
+
+        let original = selection.text
+        let element = selection.element
+        setState(.processing)
+
+        runCorrection(text: original) { [weak self] corrected in
+            guard let self else { return }
+            if corrected == original {
+                self.onNoChange?(original)
+            } else {
+                if !AccessibilityText.replaceSelection(in: element, with: corrected) {
+                    // App doesn't allow setting selected text; paste over the
+                    // still-active selection instead.
+                    TextReplacer.shared.replace(deleteCount: 0, with: corrected)
+                }
+                let appName = NSWorkspace.shared.frontmostApplication?.localizedName
+                self.onCorrectionApplied?(
+                    CorrectionRecord(original: original, corrected: corrected, appName: appName)
+                )
+            }
+            self.setState(.idle)
+        }
+        return true
+    }
+
     // MARK: - Shared
 
     private func runCorrection(text: String, onSuccess: @escaping (String) -> Void) {
         let config = settings.makeCorrectionConfig()
         let autoFixTypos = settings.autoFixResidualTypos
+        let protectedWords = settings.protectedWords
+        let prompt = CorrectionText.composedPrompt(protectedWords: protectedWords)
         Task { [weak self] in
             guard let self else { return }
             do {
-                var corrected = try await self.corrector.correct(text, config: config)
+                var corrected = try await self.corrector.correct(text, config: config, systemPrompt: prompt)
                 // Off the main thread: optionally auto-fix any leftover misspelling
                 // with the system's top suggestion before it gets typed.
                 if autoFixTypos {
-                    corrected = TypoChecker.autoFixed(corrected)
+                    corrected = TypoChecker.autoFixed(corrected, allowing: protectedWords)
                 }
                 await MainActor.run { onSuccess(corrected) }
             } catch {

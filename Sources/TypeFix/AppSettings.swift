@@ -240,6 +240,7 @@ final class AppSettings: ObservableObject {
         static let hotkey = "hotkey"
         static let spellCheckAfterCorrection = "spellCheckAfterCorrection"
         static let autoFixResidualTypos = "autoFixResidualTypos"
+        static let protectedWords = "protectedWords"
         static let didUpgradeToSonnetDefault = "didUpgradeToSonnetDefault"
     }
 
@@ -306,6 +307,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(autoFixResidualTypos, forKey: Keys.autoFixResidualTypos) }
     }
 
+    /// Words/names the user never wants altered or flagged (their own jargon,
+    /// product names, handles, etc.).
+    @Published var protectedWords: [String] {
+        didSet { defaults.set(protectedWords, forKey: Keys.protectedWords) }
+    }
+
     /// The trigger that starts / submits a correction.
     @Published var hotkey: Hotkey {
         didSet {
@@ -332,6 +339,7 @@ final class AppSettings: ObservableObject {
         self.autoMinChars = min(max(storedMinChars, AppSettings.autoMinCharsRange.lowerBound), AppSettings.autoMinCharsRange.upperBound)
         self.spellCheckAfterCorrection = defaults.object(forKey: Keys.spellCheckAfterCorrection) as? Bool ?? true
         self.autoFixResidualTypos = defaults.object(forKey: Keys.autoFixResidualTypos) as? Bool ?? false
+        self.protectedWords = defaults.stringArray(forKey: Keys.protectedWords) ?? []
         if let data = defaults.data(forKey: Keys.hotkey),
            let storedHotkey = try? JSONDecoder().decode(Hotkey.self, from: data) {
             self.hotkey = storedHotkey
@@ -401,6 +409,18 @@ final class AppSettings: ObservableObject {
     }
 
     /// A thread-safe snapshot of the settings needed to perform one correction.
+    func addProtectedWord(_ word: String) {
+        let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !protectedWords.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+        else { return }
+        protectedWords.append(trimmed)
+    }
+
+    func removeProtectedWords(_ offsets: IndexSet) {
+        protectedWords.remove(atOffsets: offsets)
+    }
+
     func makeCorrectionConfig() -> CorrectionConfig {
         CorrectionConfig(
             provider: provider,

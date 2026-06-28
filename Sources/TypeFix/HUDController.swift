@@ -155,6 +155,14 @@ final class HUDController {
         scheduleHide(after: 1.3)
     }
 
+    /// Shown after the last correction is reverted.
+    func flashReverted() {
+        stopCountdown()
+        flashUntil = Date().addingTimeInterval(1.3)
+        show(symbol: "arrow.uturn.backward.circle.fill", tint: .secondaryLabelColor, spinning: false, text: "Reverted")
+        scheduleHide(after: 1.3)
+    }
+
     /// Shown when nothing was changed but a likely typo remains in the text.
     func flashPossibleTypo() {
         stopCountdown()
