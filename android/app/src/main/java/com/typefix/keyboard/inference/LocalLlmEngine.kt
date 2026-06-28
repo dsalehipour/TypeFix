@@ -13,8 +13,10 @@ import kotlinx.coroutines.withContext
  * (Gemma / Qwen / Phi exported for MediaPipe) from local storage and runs fully
  * offline. Temperature is pinned to 0 to match TypeFix's deterministic fixes.
  *
- * GPU is preferred but we fall back to CPU on failure — the same defensive
- * pattern PrivateLM uses for flaky mobile GPU drivers.
+ * Runs on the CPU (XNNPACK) by default. The GPU backend crashes *natively* on
+ * many devices/drivers — and a native crash can't be caught, so it takes the
+ * whole keyboard process down. CPU is dramatically more stable; PrivateLM made
+ * the same call. GPU stays available behind [preferGpu] for opt-in testing.
  */
 class LocalLlmEngine private constructor(
     private val llm: LlmInference,
@@ -51,7 +53,7 @@ class LocalLlmEngine private constructor(
             context: Context,
             modelPath: String,
             maxTokens: Int = 512,
-            preferGpu: Boolean = true,
+            preferGpu: Boolean = false,
         ): LocalLlmEngine = withContext(Dispatchers.Default) {
             fun build(backend: LlmInference.Backend): LlmInference {
                 val options = LlmInference.LlmInferenceOptions.builder()

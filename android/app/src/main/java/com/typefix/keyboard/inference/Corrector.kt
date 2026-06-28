@@ -45,6 +45,9 @@ object Corrector {
         }
 
         var cleaned = CorrectionText.clean(raw, original)
+        // A model that returns nothing usable must never wipe the user's draft —
+        // tiny/over-quantized models sometimes emit empty output. Treat as a no-op.
+        if (cleaned.isBlank()) return Result.Failed("No correction returned")
         if (s.autoFixResidualTypos) {
             cleaned = SpellCheckGuard.autoFixed(context, cleaned, protectedAll)
         }

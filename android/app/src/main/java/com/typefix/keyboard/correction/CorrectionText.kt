@@ -50,13 +50,54 @@ object CorrectionText {
         return text.substring(close + "</think>".length)
     }
 
+    /** Turn/sequence terminators that on-device chat models emit after the answer. */
+    private val endMarkers = listOf(
+        "<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<|end|>", "<end_of_turn>", "<eos>",
+    )
+
+    /** Role/control tokens (ChatML, Gemma, Llama, …) that must never reach the field. */
+    private val specialTokenRegex =
+        Regex("<\\|[^|>]*\\|>|</?(?:start_of_turn|end_of_turn|bos|eos|s)>")
+
+    /**
+     * On-device models often echo chat-template scaffolding — a `<|im_start|>assistant`
+     * prefix, then the answer, then `<|im_end|>` repeated until the token budget runs
+     * out. MediaPipe doesn't stop on those tokens, so we strip them ourselves: keep only
+     * up to the first turn terminator, drop any leftover role tokens and a bare
+     * "assistant" prefix. Without this the markers get committed straight into the text.
+     */
+    private fun stripSpecialTokens(text: String): String {
+        var cut = text.length
+        for (marker in endMarkers) {
+            val i = text.indexOf(marker)
+            if (i in 0 until cut) cut = i
+        }
+        var t = specialTokenRegex.replace(text.substring(0, cut), "").trimStart()
+        // Weak/quantized models sometimes emit the two literal characters "\n"
+        // instead of an actual newline; strip those when they lead the answer.
+        while (t.startsWith("\\n") || t.startsWith("\\t")) t = t.substring(2)
+        t = t.trimStart()
+        when {
+            t.startsWith("assistant\n") -> t = t.removePrefix("assistant\n")
+            t == "assistant" -> t = ""
+        }
+        // Few-shot models occasionally echo the label before the answer.
+        for (label in listOf("Output:", "output:")) {
+            if (t.startsWith(label)) {
+                t = t.removePrefix(label).trimStart()
+                break
+            }
+        }
+        return t
+    }
+
     /**
      * Trims whitespace, removes only the wrapping quotes the model ADDED beyond
      * what the user actually typed, then restores the exact leading/trailing
      * whitespace of [original] so in-place replacement doesn't eat adjacent text.
      */
     fun clean(text: String, original: String): String {
-        var result = stripThinking(text).trim()
+        var result = stripSpecialTokens(stripThinking(text)).trim()
         val originalTrimmed = original.trim()
 
         fun leadingQuotes(s: String) = s.takeWhile { it in quoteChars }.length
@@ -80,10 +121,15 @@ object CorrectionText {
     }
 
     /**
-     * Builds the single prompt string for on-device models that take one input
-     * (no separate system/user roles). Mirrors the few-shot Input/Output style
-     * the system prompt already uses.
+     * Builds the prompt for on-device chat models using the ChatML template that
+     * Qwen2.5 and SmolLM expect. MediaPipe does NOT apply a chat template for us,
+     * so a bare "Input:/Output:" completion prompt makes the model answer and then
+     * keep inventing more fake Input/Output pairs until it hits the token budget.
+     * Wrapping system+user in ChatML and opening the assistant turn keeps it to a
+     * single answer terminated by `<|im_end|>`, which [stripSpecialTokens] trims.
      */
     fun singlePrompt(systemPrompt: String, text: String): String =
-        "$systemPrompt\n\nInput: $text\nOutput:"
+        "<|im_start|>system\n$systemPrompt<|im_end|>\n" +
+            "<|im_start|>user\n$text<|im_end|>\n" +
+            "<|im_start|>assistant\n"
 }
