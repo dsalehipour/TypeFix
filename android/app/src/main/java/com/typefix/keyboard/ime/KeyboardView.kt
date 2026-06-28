@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -131,13 +132,23 @@ class KeyboardView(
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
-    private var downRawX = 0f
-    private var downRawY = 0f
-    private var gesturing = false
-    private val crossed = StringBuilder()
-    private var lastCrossedChar: Char? = null
-    private var longPressActive = false
-    private var longPressRunnable: Runnable? = null
+    // Per-finger touch state, keyed by pointer id, so several keys can be
+    // pressed/held at once (fast rollover typing) without cross-talk.
+    private class CharTouch(
+        val view: TextView,
+        val baseChar: String,
+        val gestureEligible: Boolean,
+        val downScreenX: Float,
+        val downScreenY: Float,
+    ) {
+        var gesturing = false
+        var longPressActive = false
+        var lastCrossedChar: Char? = null
+        val crossed = StringBuilder()
+        var longPressRunnable: Runnable? = null
+    }
+
+    private val charTouches = HashMap<Int, CharTouch>()
 
     private var previewPopup: PopupWindow? = null
     private var previewText: TextView? = null
@@ -162,7 +173,10 @@ class KeyboardView(
     init {
         orientation = VERTICAL
         setBackgroundColor(colBg)
-        setPadding(dp(3), dp(4), dp(3), dp(8))
+        // No top padding: the action bar sits flush against the top edge.
+        setPadding(dp(3), 0, dp(3), dp(8))
+        // Let a second finger hit another key while one is still held (fast typing).
+        isMotionEventSplittingEnabled = true
 
         // Render edge-to-edge (full width) and only pad the bottom for the nav
         // bar / home pill so keys clear it. Without this, the IME framework
@@ -176,7 +190,7 @@ class KeyboardView(
             // On wide/unfolded screens leave blank space on the left/right so the
             // keys don't run to the edges (easier for thumbs to reach).
             val side = if (wide) dp(56) else dp(3)
-            v.setPadding(side, dp(4), side, maxOf(dp(8), bars.bottom))
+            v.setPadding(side, 0, side, maxOf(dp(8), bars.bottom))
             insets
         }
 
@@ -261,8 +275,11 @@ class KeyboardView(
         }
         addView(countdownBar, LayoutParams(MATCH, dp(3)))
 
-        keyRows = LinearLayout(context).apply { orientation = VERTICAL }
-        contentContainer = FrameLayout(context)
+        keyRows = LinearLayout(context).apply {
+            orientation = VERTICAL
+            isMotionEventSplittingEnabled = true
+        }
+        contentContainer = FrameLayout(context).apply { isMotionEventSplittingEnabled = true }
         addView(contentContainer, LayoutParams(MATCH, WRAP))
 
         addView(buildBottomSystemBar(), LayoutParams(MATCH, dp(42)))
@@ -422,7 +439,7 @@ class KeyboardView(
         add(toolIcon(R.drawable.ic_kb_emoji, colIcon) { togglePanel("emoji") })
         add(toolIcon(R.drawable.ic_kb_gif, colIcon) { togglePanel("gif") })
         add(toolIcon(R.drawable.ic_kb_clipboard, colIcon) { togglePanel("clipboard") })
-        add(toolIcon(R.drawable.ic_kb_language, colIcon) { listener.onSwitchKeyboard() })
+        // (Keyboard switching lives in the ⋯ menu and the mic long-press; no globe.)
         val moreIcon = toolIcon(R.drawable.ic_kb_more, colIcon) {}
         moreIcon.setOnClickListener { showOverflowMenu(moreIcon) }
         add(moreIcon)
@@ -1043,7 +1060,7 @@ class KeyboardView(
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val p = dp(13)
             setPadding(p, p, p, p)
-            background = drawable(R.drawable.key_func_bg)
+            background = keyBg(R.drawable.key_func_bg)
             setOnTouchListener { v, e -> handleBackspaceTouch(v, e) }
         }
         addCell(this, backspace, 1.5f)
@@ -1052,7 +1069,7 @@ class KeyboardView(
     private fun bottomRow(): View = row(50).apply {
         val toggleLabel = if (symbols) "ABC" else "!#1"
         addCell(this, textView(toggleLabel, colText, 14f).apply {
-            background = drawable(R.drawable.key_func_bg)
+            background = keyBg(R.drawable.key_func_bg)
             setOnClickListener { symbols = !symbols; renderKeys() }
         }, 1.5f)
         addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
@@ -1068,7 +1085,7 @@ class KeyboardView(
     }
 
     private fun spaceKey(): TextView = textView("English (US)", colTextSecondary, 13f).apply {
-        background = drawable(R.drawable.key_letter_bg)
+        background = keyBg(R.drawable.key_letter_bg)
         setOnClickListener { commitChar(" ") }
     }
 
@@ -1082,59 +1099,73 @@ class KeyboardView(
         gestureEligible: Boolean,
     ): TextView {
         val key = textView(baseChar, textColor, sizeSp)
-        key.background = drawable(bgRes)
+        key.background = keyBg(bgRes)
         key.setOnTouchListener { v, e -> handleCharTouch(v as TextView, baseChar, gestureEligible, e) }
         return key
     }
 
+    /** Screen coordinates of a pointer, derived from the key view's on-screen
+     *  position (works for all pointers without needing API 29 getRawX(index)). */
+    private fun pointerScreenXY(anchor: View, e: MotionEvent, pointerIndex: Int): Pair<Float, Float> {
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        return (loc[0] + e.getX(pointerIndex)) to (loc[1] + e.getY(pointerIndex))
+    }
+
     private fun handleCharTouch(v: TextView, baseChar: String, gestureEligible: Boolean, e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val idx = e.actionIndex
+                val id = e.getPointerId(idx)
+                val (sx, sy) = pointerScreenXY(v, e, idx)
+                val st = CharTouch(v, baseChar, gestureEligible, sx, sy)
+                charTouches[id] = st
                 v.isPressed = true
-                downRawX = e.rawX
-                downRawY = e.rawY
-                gesturing = false
-                longPressActive = false
                 if (gestureEligible) {
-                    crossed.setLength(0)
-                    crossed.append(baseChar.lowercase())
-                    lastCrossedChar = baseChar.lowercase().firstOrNull()
+                    st.crossed.append(baseChar.lowercase())
+                    st.lastCrossedChar = baseChar.lowercase().firstOrNull()
                 }
                 showPreview(v, currentCase(baseChar))
-                scheduleLongPress(v, baseChar)
+                scheduleLongPress(st)
             }
             MotionEvent.ACTION_MOVE -> {
-                val moved = hypot(e.rawX - downRawX, e.rawY - downRawY)
-                if (!gesturing && gestureEligible && moved > touchSlop * 2) {
-                    gesturing = true
-                    cancelLongPressTimer()
-                }
-                if (gesturing) {
-                    val ch = nearestLetterChar(e.rawX, e.rawY)
-                    if (ch != null && ch != lastCrossedChar) {
-                        crossed.append(ch)
-                        lastCrossedChar = ch
-                        previewText?.text = if (shifted) ch.uppercaseChar().toString() else ch.toString()
+                for (pi in 0 until e.pointerCount) {
+                    val st = charTouches[e.getPointerId(pi)] ?: continue
+                    val (sx, sy) = pointerScreenXY(st.view, e, pi)
+                    val moved = hypot(sx - st.downScreenX, sy - st.downScreenY)
+                    if (!st.gesturing && st.gestureEligible && moved > touchSlop * 2) {
+                        st.gesturing = true
+                        cancelLongPress(st)
+                    }
+                    if (st.gesturing) {
+                        val ch = nearestLetterChar(sx, sy)
+                        if (ch != null && ch != st.lastCrossedChar) {
+                            st.crossed.append(ch)
+                            st.lastCrossedChar = ch
+                            previewText?.text = if (shifted) ch.uppercaseChar().toString() else ch.toString()
+                        }
                     }
                 }
             }
-            MotionEvent.ACTION_UP -> {
-                v.isPressed = false
-                cancelLongPressTimer()
-                if (longPressActive) { hidePreview(); return true }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                val st = charTouches.remove(e.getPointerId(e.actionIndex)) ?: return true
+                st.view.isPressed = false
+                cancelLongPress(st)
                 hidePreview()
-                if (gesturing && gestureEligible && crossed.length >= 3 && searchMode == SearchMode.NONE) {
-                    listener.onGestureWord(crossed.toString())
+                if (st.longPressActive) return true
+                if (st.gesturing && st.gestureEligible && st.crossed.length >= 3 && searchMode == SearchMode.NONE) {
+                    listener.onGestureWord(st.crossed.toString())
                 } else {
-                    commitChar(baseChar)
+                    commitChar(st.baseChar)
                 }
-                gesturing = false
             }
             MotionEvent.ACTION_CANCEL -> {
                 v.isPressed = false
-                cancelLongPressTimer()
+                charTouches.entries.filter { it.value.view === v }.toList().forEach {
+                    cancelLongPress(it.value)
+                    charTouches.remove(it.key)
+                }
                 hidePreview()
-                gesturing = false
             }
         }
         return true
@@ -1156,7 +1187,8 @@ class KeyboardView(
     /** Very light tick on every press anywhere on the keyboard (keys, toolbar,
      *  panels, results). One tick per finger-down. Respects the vibration setting. */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN) keyHaptic()
+        val a = ev.actionMasked
+        if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_POINTER_DOWN) keyHaptic()
         return super.dispatchTouchEvent(ev)
     }
 
@@ -1244,22 +1276,22 @@ class KeyboardView(
         previewPopup?.dismiss()
     }
 
-    private fun scheduleLongPress(anchor: View, baseChar: String) {
-        cancelLongPressTimer()
-        val alts = Accents.alternatesFor(baseChar)
+    private fun scheduleLongPress(st: CharTouch) {
+        cancelLongPress(st)
+        val alts = Accents.alternatesFor(st.baseChar)
         if (alts.isEmpty()) return
         val r = Runnable {
-            longPressActive = true
+            st.longPressActive = true
             hidePreview()
-            showAlternates(anchor, baseChar, alts)
+            showAlternates(st.view, st.baseChar, alts)
         }
-        longPressRunnable = r
+        st.longPressRunnable = r
         postDelayed(r, 320)
     }
 
-    private fun cancelLongPressTimer() {
-        longPressRunnable?.let { removeCallbacks(it) }
-        longPressRunnable = null
+    private fun cancelLongPress(st: CharTouch) {
+        st.longPressRunnable?.let { removeCallbacks(it) }
+        st.longPressRunnable = null
     }
 
     private fun showAlternates(anchor: View, baseChar: String, alts: List<String>) {
@@ -1296,7 +1328,7 @@ class KeyboardView(
             isTouchable = true
             isOutsideTouchable = true
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setOnDismissListener { longPressActive = false }
+            setOnDismissListener { alternatesPopup = null }
         }
         alternatesPopup = popup
         val loc = IntArray(2)
@@ -1327,7 +1359,7 @@ class KeyboardView(
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val p = dp(13)
             setPadding(p, p, p, p)
-            background = drawable(bgRes)
+            background = keyBg(bgRes)
             isClickable = true
             setOnClickListener { onClick() }
         }
@@ -1336,15 +1368,26 @@ class KeyboardView(
 
     private fun row(heightDp: Int): LinearLayout = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        layoutParams = LayoutParams(MATCH, dp(heightDp)).apply { topMargin = dp(5) }
+        // No top margin between rows: that strip would be a dead zone. The visual
+        // gap is created by the inset key backgrounds instead, so the row height
+        // is bumped to keep the same pitch while the whole row stays touchable.
+        isMotionEventSplittingEnabled = true
+        layoutParams = LayoutParams(MATCH, dp(heightDp) + dp(5))
     }
 
+    /**
+     * Cells tile their row edge-to-edge (no margins) so there are no dead spots
+     * between keys. Each key's visible rounded background is inset via [keyBg];
+     * the touch target fills the entire cell.
+     */
     private fun addCell(row: LinearLayout, view: View, weight: Float) {
-        row.addView(view, LinearLayout.LayoutParams(0, MATCH, weight).apply {
-            marginStart = dp(2)
-            marginEnd = dp(2)
-        })
+        row.addView(view, LinearLayout.LayoutParams(0, MATCH, weight))
     }
+
+    /** Wraps a key drawable in an inset so the visible key is smaller than its
+     *  (fully touchable) cell — this is what creates the gaps between keys. */
+    private fun keyBg(res: Int): InsetDrawable =
+        InsetDrawable(drawable(res), dp(2), dp(2), dp(2), dp(2))
 
     private fun currentCase(key: String) = if (shifted && !symbols) key.uppercase() else key
 
@@ -1355,7 +1398,7 @@ class KeyboardView(
             }
         }
         shiftKey?.apply {
-            background = drawable(if (shifted) R.drawable.key_func_active_bg else R.drawable.key_func_bg)
+            background = keyBg(if (shifted) R.drawable.key_func_active_bg else R.drawable.key_func_bg)
             setColorFilter(if (shifted) colAccent else colIcon)
         }
     }
