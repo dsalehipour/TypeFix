@@ -1509,13 +1509,14 @@ class KeyboardView(
         private val SYM_PAGE1 = listOf(
             listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
             listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")"),
-            listOf("`", "~", "=", "_", "/", "\\", ":", ";", "-", "+"),
+            // The common punctuation (? ' ") lives here; - / + stay under ( / ).
+            listOf("~", "=", "/", "\\", ":", "?", "'", "\"", "-", "+"),
         )
-        // Page 2: the less-common symbols and currency.
+        // Page 2: the less-common symbols, currency, and rarer punctuation (; _ `).
         private val SYM_PAGE2 = listOf(
             listOf("[", "]", "{", "}", "<", ">", "|", "•", "·", "…"),
             listOf("£", "€", "¥", "¢", "°", "©", "®", "™", "§", "¶"),
-            listOf("'", "\"", "?", "¿", "¡", "×", "÷", "±", "—", "№"),
+            listOf("`", "_", ";", "¿", "¡", "×", "÷", "±", "—", "№"),
         )
     }
 }
