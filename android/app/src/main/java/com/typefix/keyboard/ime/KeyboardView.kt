@@ -1252,7 +1252,7 @@ class KeyboardView(
         return super.dispatchTouchEvent(ev)
     }
 
-    private fun keyHaptic() = Haptics.tick(context, 6, 22)
+    private fun keyHaptic() = Haptics.tick(context, 18, 160)
 
     private fun handleBackspaceTouch(v: View, e: MotionEvent): Boolean {
         when (e.actionMasked) {
