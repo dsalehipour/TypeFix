@@ -50,13 +50,15 @@ interface KeyboardListener {
     fun onEmojiPanelShown()
     fun onEmojiSearchQuery(query: String)
     fun onGifPanelShown()
-    fun onGifSearchQuery(query: String)
+    fun onGifSearchQuery(query: String, immediate: Boolean)
     fun onGifSelected(gifUrl: String)
     fun onMic()
     fun onHideKeyboard()
     fun onToggleAutoMode()
     fun onCancelFix()
     fun onToneFix()
+    /** Move the text caret by [steps] (negative = left) — space-bar trackpad. */
+    fun onCursorMove(steps: Int)
 }
 
 /**
@@ -89,6 +91,7 @@ class KeyboardView(
 
     private var shifted = false
     private var symbols = false
+    private var symbolsPage = 0
 
     private var emojiSuggestions: List<String> = emptyList()
     private var emojiSuggestedRow: LinearLayout? = null
@@ -173,8 +176,10 @@ class KeyboardView(
     init {
         orientation = VERTICAL
         setBackgroundColor(colBg)
-        // No top padding: the action bar sits flush against the top edge.
-        setPadding(dp(3), 0, dp(3), dp(8))
+        // No top padding: the action bar sits flush against the top edge. Wider
+        // side padding keeps the keys narrower (less thumb reach), and extra
+        // bottom padding lifts the space bar up off the very edge.
+        setPadding(dp(12), 0, dp(12), dp(20))
         // Let a second finger hit another key while one is still held (fast typing).
         isMotionEventSplittingEnabled = true
 
@@ -187,10 +192,11 @@ class KeyboardView(
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.ime()
             )
-            // On wide/unfolded screens leave blank space on the left/right so the
-            // keys don't run to the edges (easier for thumbs to reach).
-            val side = if (wide) dp(56) else dp(3)
-            v.setPadding(side, 0, side, maxOf(dp(8), bars.bottom))
+            // Leave blank space on the left/right so the keys don't run to the
+            // edges (easier for thumbs to reach) — more on wide/unfolded screens.
+            val side = if (wide) dp(56) else dp(12)
+            // Lift the space bar up a little above the nav area.
+            v.setPadding(side, 0, side, maxOf(dp(8), bars.bottom) + dp(12))
             insets
         }
 
@@ -863,7 +869,7 @@ class KeyboardView(
                 renderEmojiResults(EmojiSearchIndex.search(q))
                 if (q.isNotBlank()) listener.onEmojiSearchQuery(q)
             }
-            SearchMode.GIF -> if (q.isNotBlank()) listener.onGifSearchQuery(q)
+            SearchMode.GIF -> if (q.isNotBlank()) listener.onGifSearchQuery(q, immediate = false)
             SearchMode.NONE -> {}
         }
     }
@@ -916,11 +922,14 @@ class KeyboardView(
         row.removeAllViews()
         results.forEach { gif ->
             row.addView(ImageView(context).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
+                // Fit the whole GIF (sized to its aspect) instead of cropping the
+                // top/bottom — the preview now matches what gets inserted.
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
                 background = drawable(R.drawable.key_flat_bg)
                 load(gif.previewUrl, gifLoader)
                 setOnClickListener { listener.onGifSelected(gif.gifUrl) }
-            }, LinearLayout.LayoutParams(dp(150), MATCH).apply { marginEnd = dp(4) })
+            }, LinearLayout.LayoutParams(WRAP, MATCH).apply { marginEnd = dp(4) })
         }
     }
 
@@ -1005,10 +1014,9 @@ class KeyboardView(
     }
 
     private fun renderSymbols() {
-        keyRows.addView(symbolRow(SYM_ROW1))
-        keyRows.addView(symbolRow(SYM_ROW2))
-        keyRows.addView(thirdRow(SYM_ROW3, lettersPage = false))
-        keyRows.addView(bottomRow())
+        val rows = if (symbolsPage == 0) SYM_PAGE1 else SYM_PAGE2
+        rows.forEach { keyRows.addView(symbolRow(it)) }
+        keyRows.addView(symbolsBottomRow())
     }
 
     private fun numberRow(): View = row(40).apply {
@@ -1054,23 +1062,23 @@ class KeyboardView(
             addCell(this, key, 1f)
             if (wide && i == 3) addCenterGap(this)
         }
-        val backspace = ImageView(context).apply {
-            setImageResource(R.drawable.ic_kb_backspace)
-            setColorFilter(colIcon)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            val p = dp(13)
-            setPadding(p, p, p, p)
-            background = keyBg(R.drawable.key_func_bg)
-            setOnTouchListener { v, e -> handleBackspaceTouch(v, e) }
-        }
-        addCell(this, backspace, 1.5f)
+        addCell(this, backspaceKey(), 1.5f)
+    }
+
+    private fun backspaceKey(): ImageView = ImageView(context).apply {
+        setImageResource(R.drawable.ic_kb_backspace)
+        setColorFilter(colIcon)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        val p = dp(13)
+        setPadding(p, p, p, p)
+        background = keyBg(R.drawable.key_func_bg)
+        setOnTouchListener { v, e -> handleBackspaceTouch(v, e) }
     }
 
     private fun bottomRow(): View = row(50).apply {
-        val toggleLabel = if (symbols) "ABC" else "!#1"
-        addCell(this, textView(toggleLabel, colText, 14f).apply {
+        addCell(this, textView("!#1", colText, 14f).apply {
             background = keyBg(R.drawable.key_func_bg)
-            setOnClickListener { symbols = !symbols; renderKeys() }
+            setOnClickListener { symbols = true; symbolsPage = 0; renderKeys() }
         }, 1.5f)
         addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
         if (wide) {
@@ -1084,9 +1092,67 @@ class KeyboardView(
         addCell(this, iconKey(R.drawable.ic_kb_enter, R.drawable.key_func_bg) { handleEnter() }, 1.5f)
     }
 
+    /** Symbols pages keep their symbol rows full-width (so the shifted symbols
+     *  line up under the numbers), so ABC / page-cycle / backspace / enter live
+     *  together down here. */
+    private fun symbolsBottomRow(): View = row(50).apply {
+        addCell(this, textView("ABC", colText, 14f).apply {
+            background = keyBg(R.drawable.key_func_bg)
+            setOnClickListener { symbols = false; renderKeys() }
+        }, 1.6f)
+        addCell(this, textView("${symbolsPage + 1}/2", colText, 14f).apply {
+            background = keyBg(R.drawable.key_func_bg)
+            setOnClickListener { symbolsPage = (symbolsPage + 1) % 2; renderKeys() }
+        }, 1.4f)
+        addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
+        addCell(this, spaceKey(), 3.2f)
+        addCell(this, charKey(".", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
+        addCell(this, backspaceKey(), 1.5f)
+        addCell(this, iconKey(R.drawable.ic_kb_enter, R.drawable.key_func_bg) { handleEnter() }, 1.5f)
+    }
+
     private fun spaceKey(): TextView = textView("English (US)", colTextSecondary, 13f).apply {
         background = keyBg(R.drawable.key_letter_bg)
-        setOnClickListener { commitChar(" ") }
+        setOnTouchListener { v, e -> handleSpaceTouch(v as TextView, e) }
+    }
+
+    /** Space bar: a normal tap types a space; dragging left/right turns it into
+     *  a trackpad that moves the text caret (Samsung-style), landing where you
+     *  release. */
+    private var spaceAnchorX = 0f
+    private var spaceCursorMode = false
+    private fun handleSpaceTouch(v: TextView, e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                v.isPressed = true
+                spaceAnchorX = e.rawX
+                spaceCursorMode = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!spaceCursorMode && kotlin.math.abs(e.rawX - spaceAnchorX) > touchSlop) {
+                    spaceCursorMode = true
+                    spaceAnchorX = e.rawX
+                }
+                if (spaceCursorMode) {
+                    val step = dp(10).toFloat()
+                    val steps = ((e.rawX - spaceAnchorX) / step).toInt()
+                    if (steps != 0) {
+                        listener.onCursorMove(steps)
+                        spaceAnchorX += steps * step
+                    }
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                v.isPressed = false
+                if (!spaceCursorMode) commitChar(" ")
+                spaceCursorMode = false
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                v.isPressed = false
+                spaceCursorMode = false
+            }
+        }
+        return true
     }
 
     // ---- Touch handling for character keys (preview, long-press, gesture) ----
@@ -1153,7 +1219,7 @@ class KeyboardView(
                 cancelLongPress(st)
                 hidePreview()
                 if (st.longPressActive) return true
-                if (st.gesturing && st.gestureEligible && st.crossed.length >= 3 && searchMode == SearchMode.NONE) {
+                if (st.gesturing && st.gestureEligible && st.crossed.length >= 2 && searchMode == SearchMode.NONE) {
                     listener.onGestureWord(st.crossed.toString())
                 } else {
                     commitChar(st.baseChar)
@@ -1224,6 +1290,13 @@ class KeyboardView(
     }
 
     private fun handleEnter() {
+        // In GIF search, Enter runs the search now (instead of waiting for the
+        // idle debounce); other panels just close back to the keyboard.
+        if (searchMode == SearchMode.GIF) {
+            val q = searchQuery.toString()
+            if (q.isNotBlank()) listener.onGifSearchQuery(q, immediate = true)
+            return
+        }
         if (searchMode != SearchMode.NONE) {
             exitSearch()
             return
@@ -1431,8 +1504,18 @@ class KeyboardView(
         private val ROW2 = listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
         private val ROW3 = listOf("z", "x", "c", "v", "b", "n", "m")
 
-        private val SYM_ROW1 = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
-        private val SYM_ROW2 = listOf("@", "#", "$", "_", "&", "-", "+", "(", ")", "/")
-        private val SYM_ROW3 = listOf("*", "\"", "'", ":", ";", "!", "?")
+        // Page 1 mirrors a physical US keyboard: the shifted number symbols line
+        // up under the numbers (! under 1 … ) under 0), and - / + sit under ( / ).
+        private val SYM_PAGE1 = listOf(
+            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
+            listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")"),
+            listOf("`", "~", "=", "_", "/", "\\", ":", ";", "-", "+"),
+        )
+        // Page 2: the less-common symbols and currency.
+        private val SYM_PAGE2 = listOf(
+            listOf("[", "]", "{", "}", "<", ">", "|", "•", "·", "…"),
+            listOf("£", "€", "¥", "¢", "°", "©", "®", "™", "§", "¶"),
+            listOf("'", "\"", "?", "¿", "¡", "×", "÷", "±", "—", "№"),
+        )
     }
 }

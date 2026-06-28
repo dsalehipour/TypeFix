@@ -128,8 +128,13 @@ object CorrectionText {
      * Wrapping system+user in ChatML and opening the assistant turn keeps it to a
      * single answer terminated by `<|im_end|>`, which [stripSpecialTokens] trims.
      */
-    fun singlePrompt(systemPrompt: String, text: String): String =
-        "<|im_start|>system\n$systemPrompt<|im_end|>\n" +
-            "<|im_start|>user\n$text<|im_end|>\n" +
+    fun singlePrompt(systemPrompt: String, text: String, noThink: Boolean = false): String {
+        // Qwen3 is a hybrid reasoning model; "/no_think" keeps it from emitting a
+        // slow <think> block we'd only strip anyway (and which can blow the token
+        // budget on the small variants).
+        val user = if (noThink) "$text /no_think" else text
+        return "<|im_start|>system\n$systemPrompt<|im_end|>\n" +
+            "<|im_start|>user\n$user<|im_end|>\n" +
             "<|im_start|>assistant\n"
+    }
 }

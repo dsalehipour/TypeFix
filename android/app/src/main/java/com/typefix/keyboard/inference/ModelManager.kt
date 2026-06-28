@@ -17,34 +17,63 @@ import java.util.concurrent.TimeUnit
  */
 object ModelManager {
 
-    /** A downloadable on-device model. */
+    /** A downloadable on-device model. [ext] is the on-disk file extension —
+     *  `task` (MediaPipe bundle) or `litertlm` (LiteRT-LM, used by Qwen3). */
     data class CatalogEntry(
         val id: String,
         val label: String,
         val approxSizeMb: Int,
         val url: String,
+        val ext: String = "task",
     )
 
+    /** Recognized on-device model file extensions, in lookup order. */
+    private val MODEL_EXTS = listOf("litertlm", "task")
+
     /**
-     * Suggested small instruct models exported for MediaPipe. URLs typically
-     * point at Hugging Face / Kaggle and may require you to accept a license or
-     * supply a token — so importing a `.task` file you already have is also
-     * supported (see [importModel]).
+     * Suggested instruct models for on-device use. Qwen3 (LiteRT-LM `.litertlm`)
+     * matches the macOS app's Qwen3 family and is the better choice; Qwen2.5
+     * (`.task`) stays as a lighter, older option. URLs point at Hugging Face;
+     * importing a file you already have is also supported (see [importModel]).
      */
     val catalog: List<CatalogEntry> = listOf(
         CatalogEntry(
-            id = "qwen2.5-0.5b",
-            label = "Qwen2.5 0.5B Instruct (int8, ~0.5 GB · fastest)",
-            approxSizeMb = 560,
-            url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/" +
-                "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+            id = "qwen3-4b-instruct",
+            label = "Qwen3 4B Instruct 2507 (best · matches Mac · ~2.7 GB)",
+            approxSizeMb = 2659,
+            url = "https://huggingface.co/litert-community/Qwen3-4B-Instruct-2507/resolve/main/" +
+                "qwen3_4b_instruct_2507_mixed_int4.litertlm",
+            ext = "litertlm",
+        ),
+        CatalogEntry(
+            id = "qwen3-1.7b",
+            label = "Qwen3 1.7B (great balance · ~2.1 GB)",
+            approxSizeMb = 2100,
+            url = "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/main/" +
+                "Qwen3_1.7B.litertlm",
+            ext = "litertlm",
+        ),
+        CatalogEntry(
+            id = "qwen3-0.6b",
+            label = "Qwen3 0.6B (fastest Qwen3 · ~0.5 GB)",
+            approxSizeMb = 498,
+            url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/" +
+                "qwen3_0_6b_mixed_int4.litertlm",
+            ext = "litertlm",
         ),
         CatalogEntry(
             id = "qwen2.5-1.5b",
-            label = "Qwen2.5 1.5B Instruct (int8, ~1.6 GB · better)",
+            label = "Qwen2.5 1.5B Instruct (older · ~1.6 GB)",
             approxSizeMb = 1600,
             url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/" +
                 "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        ),
+        CatalogEntry(
+            id = "qwen2.5-0.5b",
+            label = "Qwen2.5 0.5B Instruct (older · smallest · ~0.5 GB)",
+            approxSizeMb = 560,
+            url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/" +
+                "Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         ),
     )
 
@@ -58,8 +87,14 @@ object ModelManager {
     fun modelsDir(context: Context): File =
         File(context.filesDir, "models").apply { mkdirs() }
 
-    fun fileFor(context: Context, id: String): File =
-        File(modelsDir(context), "$id.task")
+    /** The on-disk file for [id]: an existing `.task`/`.litertlm` if present,
+     *  otherwise the path implied by the catalog (download target). */
+    fun fileFor(context: Context, id: String): File {
+        val dir = modelsDir(context)
+        MODEL_EXTS.forEach { ext -> File(dir, "$id.$ext").let { if (it.exists()) return it } }
+        val ext = catalog.firstOrNull { it.id == id }?.ext ?: "task"
+        return File(dir, "$id.$ext")
+    }
 
     fun isInstalled(context: Context, id: String): Boolean =
         id.isNotBlank() && fileFor(context, id).let { it.exists() && it.length() > 0 }
@@ -72,7 +107,7 @@ object ModelManager {
 
     fun installed(context: Context): List<String> =
         modelsDir(context).listFiles()
-            ?.filter { it.isFile && it.extension == "task" }
+            ?.filter { it.isFile && it.extension in MODEL_EXTS }
             ?.map { it.nameWithoutExtension }
             ?: emptyList()
 
@@ -83,8 +118,8 @@ object ModelManager {
         onProgress: (Float) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
-            val target = fileFor(context, entry.id)
-            val tmp = File(target.parentFile, "${entry.id}.task.part")
+            val target = File(modelsDir(context), "${entry.id}.${entry.ext}")
+            val tmp = File(target.parentFile, "${target.name}.part")
             val request = Request.Builder().url(entry.url).build()
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) error("HTTP ${response.code}")

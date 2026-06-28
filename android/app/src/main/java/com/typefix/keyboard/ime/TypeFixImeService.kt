@@ -11,6 +11,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.text.InputType
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
@@ -64,6 +65,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var thinkingJob: Job? = null
     private var writingJob: Job? = null
     private var backspaceJob: Job? = null
+    private var gifSearchJob: Job? = null
     private var toneJob: Job? = null
     private var toneTarget: String? = null
     private var toneFlag: String? = null
@@ -185,15 +187,26 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         cancelInFlightFix()
         clearLastFix()
         keyboard?.clearTone()
-        currentInputConnection?.deleteSurroundingText(1, 0)
+        if (!deleteSelectionIfAny()) currentInputConnection?.deleteSurroundingText(1, 0)
         scheduleAutoCorrection()
         scheduleToneCheck()
+    }
+
+    /** If text is highlighted, delete the whole selection and report true. */
+    private fun deleteSelectionIfAny(): Boolean {
+        val ic = currentInputConnection ?: return false
+        val selected = ic.getSelectedText(0)
+        if (selected.isNullOrEmpty()) return false
+        ic.commitText("", 1) // replacing the selection with "" deletes it
+        return true
     }
 
     override fun onBackspacePressed() {
         cancelInFlightFix()
         clearLastFix()
         backspaceJob?.cancel()
+        // A highlighted selection is deleted whole on the very first press.
+        if (deleteSelectionIfAny()) return
         backspaceJob = scope.launch {
             currentInputConnection?.deleteSurroundingText(1, 0) // immediate (also the single-tap case)
             delay(350) // hold threshold before auto-repeat kicks in
@@ -300,8 +313,14 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onGestureWord(crossedKeys: String) {
         clearLastFix()
         scope.launch {
-            val word = withContext(Dispatchers.Default) { GestureDecoder.decode(crossedKeys) } ?: return@launch
-            currentInputConnection?.commitText("$word ", 1)
+            val word = withContext(Dispatchers.Default) { GestureDecoder.decode(crossedKeys) }
+            if (word != null) {
+                currentInputConnection?.commitText("$word ", 1)
+            } else {
+                // Short/ambiguous swipe that didn't resolve to a word — just type
+                // the starting letter so the gesture isn't lost entirely.
+                currentInputConnection?.commitText(crossedKeys.take(1), 1)
+            }
             scheduleAutoCorrection()
         }
     }
@@ -375,11 +394,23 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         scope.launch { keyboard?.setGifResults(GifClient.featured(key)) }
     }
 
-    override fun onGifSearchQuery(query: String) {
+    override fun onGifSearchQuery(query: String, immediate: Boolean) {
         val key = klipyKey()
         if (key.isBlank()) return
+        gifSearchJob?.cancel()
         keyboard?.setGifLoading()
-        scope.launch { keyboard?.setGifResults(GifClient.search(query, key)) }
+        gifSearchJob = scope.launch {
+            // Wait for a typing pause (Enter sends immediate=true) so we don't
+            // hammer the API on every keystroke.
+            if (!immediate) delay(1000)
+            keyboard?.setGifResults(GifClient.search(query, key))
+        }
+    }
+
+    override fun onCursorMove(steps: Int) {
+        if (steps == 0) return
+        val code = if (steps < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
+        repeat(kotlin.math.abs(steps).coerceAtMost(60)) { sendDownUpKeyEvents(code) }
     }
 
     /** The user's own KLIPY key if set, otherwise the bundled one. */

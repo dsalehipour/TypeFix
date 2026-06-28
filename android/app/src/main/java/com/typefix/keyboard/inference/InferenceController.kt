@@ -32,7 +32,10 @@ object InferenceController {
     private var loadedModelId: String? = null
     private val mutex = Mutex()
 
-    suspend fun ensureLoaded(context: Context, modelId: String): LocalLlmEngine = mutex.withLock {
+    suspend fun ensureLoaded(context: Context, modelId: String): LocalLlmEngine =
+        mutex.withLock { ensureLoadedLocked(context, modelId) }
+
+    private suspend fun ensureLoadedLocked(context: Context, modelId: String): LocalLlmEngine {
         engine?.let { if (loadedModelId == modelId) return it }
 
         engine?.close()
@@ -55,7 +58,7 @@ object InferenceController {
             loadedBackend = loaded.backend
             lastError = null
             _state.value = State.READY
-            loaded
+            return loaded
         } catch (t: Throwable) {
             lastError = t.message ?: "Failed to load model"
             _state.value = State.ERROR
@@ -63,12 +66,20 @@ object InferenceController {
         }
     }
 
+    /**
+     * Loads (if needed) and runs one generation. The whole call holds [mutex] so
+     * inferences are serialized — MediaPipe sessions are NOT safe to run
+     * concurrently, and overlapping calls (e.g. a correction plus emoji
+     * suggestions) crash the native engine and take the process down.
+     */
     suspend fun generate(
         context: Context,
         modelId: String,
         systemPrompt: String,
         text: String,
-    ): String = ensureLoaded(context, modelId).generate(systemPrompt, text)
+    ): String = mutex.withLock {
+        ensureLoadedLocked(context, modelId).generate(systemPrompt, text)
+    }
 
     fun unload() {
         engine?.close()

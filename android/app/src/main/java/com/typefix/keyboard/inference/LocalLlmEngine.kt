@@ -21,7 +21,10 @@ import kotlinx.coroutines.withContext
 class LocalLlmEngine private constructor(
     private val llm: LlmInference,
     val backend: String,
+    private val modelPath: String,
 ) : InferenceEngine {
+
+    private val isQwen3 = modelPath.contains("qwen3", ignoreCase = true)
 
     override suspend fun generate(systemPrompt: String, text: String): String =
         withContext(Dispatchers.Default) {
@@ -34,7 +37,7 @@ class LocalLlmEngine private constructor(
                     .build()
             )
             try {
-                session.addQueryChunk(CorrectionText.singlePrompt(systemPrompt, text))
+                session.addQueryChunk(CorrectionText.singlePrompt(systemPrompt, text, noThink = isQwen3))
                 session.generateResponse()
             } finally {
                 session.close()
@@ -66,12 +69,12 @@ class LocalLlmEngine private constructor(
 
             if (preferGpu) {
                 try {
-                    return@withContext LocalLlmEngine(build(LlmInference.Backend.GPU), "gpu")
+                    return@withContext LocalLlmEngine(build(LlmInference.Backend.GPU), "gpu", modelPath)
                 } catch (t: Throwable) {
                     Log.w(TAG, "GPU backend failed, falling back to CPU", t)
                 }
             }
-            LocalLlmEngine(build(LlmInference.Backend.CPU), "cpu")
+            LocalLlmEngine(build(LlmInference.Backend.CPU), "cpu", modelPath)
         }
     }
 }
