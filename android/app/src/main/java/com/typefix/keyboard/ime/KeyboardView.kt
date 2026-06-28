@@ -303,8 +303,12 @@ class KeyboardView(
     private fun buildBottomSystemBar(): View = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        // Mic: tap = speech-to-text, hold = switch keyboard (replaces a separate
-        // keyboard-switch icon).
+        // Just a centered mic. No custom hide button — the OS already shows an
+        // unremovable down-arrow to dismiss the keyboard, so ours was redundant.
+        // Centering keeps it clear of the bottom-left !#1 key and the OS
+        // keyboard-switcher icon in that corner.
+        addView(View(context), LayoutParams(0, MATCH, 1f))
+        // Mic: tap = speech-to-text, hold = switch keyboard.
         val mic = ImageView(context).apply {
             setImageResource(R.drawable.ic_kb_mic)
             setColorFilter(colIcon)
@@ -315,16 +319,6 @@ class KeyboardView(
         }
         addView(mic, LayoutParams(dp(52), MATCH))
         addView(View(context), LayoutParams(0, MATCH, 1f))
-        // Down arrow = hide keyboard.
-        val hide = ImageView(context).apply {
-            setImageResource(R.drawable.ic_kb_arrow_down)
-            setColorFilter(colIcon)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(11), dp(9), dp(11), dp(9))
-            background = drawable(R.drawable.key_flat_bg)
-            setOnClickListener { listener.onHideKeyboard() }
-        }
-        addView(hide, LayoutParams(dp(52), MATCH))
     }
 
     private fun handleMicTouch(v: View, e: MotionEvent): Boolean {
