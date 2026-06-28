@@ -264,16 +264,16 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onGifPanelShown() {
-        val key = settings.snapshot().tenorApiKey
+        val key = settings.snapshot().klipyApiKey
         if (key.isBlank()) {
-            keyboard?.flash("Add a Tenor API key in Settings", orange)
+            keyboard?.flash("Add a free KLIPY key in Settings", orange)
             return
         }
         scope.launch { keyboard?.setGifResults(GifClient.featured(key)) }
     }
 
     override fun onGifSearchQuery(query: String) {
-        val key = settings.snapshot().tenorApiKey
+        val key = settings.snapshot().klipyApiKey
         if (key.isBlank()) return
         scope.launch { keyboard?.setGifResults(GifClient.search(query, key)) }
     }

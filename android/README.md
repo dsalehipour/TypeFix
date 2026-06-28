@@ -21,7 +21,7 @@ productized sibling of that stack) behind a swappable `InferenceEngine`.
    from this source** the first time — enable it, then **Install**.
 3. Launch **TypeFix** → **Enable TypeFix keyboard** → **Switch to TypeFix**.
 4. Pick a backend for corrections (download an on-device model, or paste a cloud
-   API key) and, optionally, a free **Tenor** key for GIF search — all in
+   API key) and, optionally, a free **KLIPY** key for GIF search — all in
    Settings (the keyboard's **⋯ → Settings**, or the app icon).
 
 > Requires **Android 9 (API 28)+**. This is a debug-signed build for sideloading,

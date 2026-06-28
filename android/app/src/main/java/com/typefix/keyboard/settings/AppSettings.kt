@@ -32,7 +32,7 @@ class AppSettings private constructor(context: Context) {
         const val PROTECTED_WORDS = "protectedWords"
         const val LOCAL_MODEL_ID = "localModelId"
         const val VIBRATION = "vibrationEnabled"
-        const val TENOR_KEY = "tenorApiKey"
+        const val KLIPY_KEY = "klipyApiKey"
         fun apiKey(provider: Provider) = "apiKey_${provider.id}"
     }
 
@@ -95,10 +95,10 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getBoolean(Keys.VIBRATION, true)
         set(value) { prefs.edit().putBoolean(Keys.VIBRATION, value).apply(); publish() }
 
-    /** Free Tenor API key, enables GIF search. */
-    var tenorApiKey: String
-        get() = prefs.getString(Keys.TENOR_KEY, "").orEmpty()
-        set(value) { prefs.edit().putString(Keys.TENOR_KEY, value.trim()).apply(); publish() }
+    /** Free KLIPY API key, enables GIF search. */
+    var klipyApiKey: String
+        get() = prefs.getString(Keys.KLIPY_KEY, "").orEmpty()
+        set(value) { prefs.edit().putString(Keys.KLIPY_KEY, value.trim()).apply(); publish() }
 
     var protectedWords: List<String>
         get() = prefs.getString(Keys.PROTECTED_WORDS, "")
@@ -153,7 +153,7 @@ class AppSettings private constructor(context: Context) {
             protectedWords = protectedWords,
             localModelId = localModelId,
             vibrationEnabled = vibrationEnabled,
-            tenorApiKey = tenorApiKey,
+            klipyApiKey = klipyApiKey,
         )
     }
 
@@ -185,5 +185,5 @@ data class SettingsSnapshot(
     val protectedWords: List<String>,
     val localModelId: String,
     val vibrationEnabled: Boolean,
-    val tenorApiKey: String,
+    val klipyApiKey: String,
 )

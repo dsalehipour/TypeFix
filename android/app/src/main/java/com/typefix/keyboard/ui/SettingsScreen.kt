@@ -77,7 +77,7 @@ fun SettingsScreen() {
             }
             ModeCard(settings, snapshot.correctionMode, snapshot.autoDelayMs, snapshot.autoMinChars)
             FeedbackCard(settings, snapshot.vibrationEnabled)
-            GifCard(settings, snapshot.tenorApiKey)
+            GifCard(settings, snapshot.klipyApiKey)
             GuardrailCard(settings, snapshot.spellCheckAfterCorrection, snapshot.autoFixResidualTypos)
             ProtectedWordsCard(settings, snapshot.protectedWords)
             Spacer(Modifier.height(24.dp))
@@ -296,18 +296,19 @@ private fun ModeCard(
 }
 
 @Composable
-private fun GifCard(settings: AppSettings, tenorApiKey: String) {
+private fun GifCard(settings: AppSettings, klipyApiKey: String) {
     SectionCard("GIFs") {
         Text(
-            "Paste a free Tenor API key to enable GIF search (the GIF button in " +
-                "the keyboard toolbar). Get one at tenor.com/gifapi.",
+            "Paste a free KLIPY API key to enable GIF search (the GIF button in " +
+                "the keyboard toolbar). Get one at partner.klipy.com — it's free " +
+                "for life (Tenor no longer accepts new accounts).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedTextField(
-            value = tenorApiKey,
-            onValueChange = { settings.tenorApiKey = it },
-            label = { Text("Tenor API key") },
+            value = klipyApiKey,
+            onValueChange = { settings.klipyApiKey = it },
+            label = { Text("KLIPY API key") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

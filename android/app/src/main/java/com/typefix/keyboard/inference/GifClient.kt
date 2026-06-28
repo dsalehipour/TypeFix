@@ -8,11 +8,14 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Minimal Tenor (v2) GIF client — the same provider gifboard-style keyboards
- * use. Needs a free Tenor API key (set in Settings). Returns a small preview
- * URL for the grid and a full GIF URL for insertion.
+ * Minimal GIF client backed by KLIPY (https://klipy.com). KLIPY is a lifetime-
+ * free, Tenor-compatible GIF API (Tenor stopped accepting new accounts), so the
+ * v2 endpoints and `results[].media_formats` response shape match Tenor's.
+ * Needs a free KLIPY key (partner.klipy.com), set in Settings.
  */
 object GifClient {
+
+    private const val BASE = "https://api.klipy.com/v2"
 
     data class Gif(val previewUrl: String, val gifUrl: String)
 
@@ -24,12 +27,12 @@ object GifClient {
     }
 
     suspend fun search(query: String, apiKey: String, limit: Int = 24): List<Gif> =
-        fetch("https://tenor.googleapis.com/v2/search?q=${enc(query)}&key=$apiKey" +
-            "&client_key=typefix&limit=$limit&media_filter=tinygif,gif&contentfilter=high")
+        fetch("$BASE/search?key=$apiKey&q=${enc(query)}" +
+            "&limit=$limit&media_filter=tinygif,gif&contentfilter=high")
 
     suspend fun featured(apiKey: String, limit: Int = 24): List<Gif> =
-        fetch("https://tenor.googleapis.com/v2/featured?key=$apiKey" +
-            "&client_key=typefix&limit=$limit&media_filter=tinygif,gif&contentfilter=high")
+        fetch("$BASE/featured?key=$apiKey" +
+            "&limit=$limit&media_filter=tinygif,gif&contentfilter=high")
 
     private suspend fun fetch(url: String): List<Gif> = withContext(Dispatchers.IO) {
         runCatching {
