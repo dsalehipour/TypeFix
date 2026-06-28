@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -92,6 +93,8 @@ class KeyboardView(
     private var shiftKey: ImageView? = null
 
     private var shifted = false
+    private var capsLock = false
+    private var lastShiftTapAt = 0L
     private var symbols = false
     private var symbolsPage = 0
 
@@ -123,6 +126,10 @@ class KeyboardView(
     // picked instead of the normal key-down tick.
     private val panelTileTag = Any()
     private val hitLoc = IntArray(2)
+
+    // Clipboard panel multi-select (long-press to enter).
+    private var clipSelecting = false
+    private val clipSelected = linkedSetOf<String>()
 
     private var micLongPressed = false
     private var micRunnable: Runnable? = null
@@ -647,6 +654,7 @@ class KeyboardView(
         symbols = false
         symbolsPage = 0
         shifted = false
+        capsLock = false
         showKeyboard()
         renderKeys()
     }
@@ -683,6 +691,23 @@ class KeyboardView(
         searchMode = SearchMode.NONE
         activePanel = "clipboard"
         emojiSuggestedRow = null
+        clipSelecting = false
+        clipSelected.clear()
+        captureCurrentClip()
+        rebuildClipboard()
+    }
+
+    /** Records the current system clip into history (we can read it while shown). */
+    private fun captureCurrentClip() {
+        val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
+        val current = runCatching {
+            clip?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+        }.getOrNull()
+        ClipboardHistory.add(context, current)
+    }
+
+    private fun rebuildClipboard() {
+        if (activePanel != "clipboard") return
         contentContainer.removeAllViews()
         contentContainer.addView(buildClipboardPanel(), FrameLayout.LayoutParams(MATCH, WRAP))
     }
@@ -810,7 +835,6 @@ class KeyboardView(
             }
         }
         scroll.addView(list)
-        addScrollHaptics(scroll)
         addView(scroll, LayoutParams(MATCH, dp(168)))
         addView(panelBottomBar())
     }
@@ -853,7 +877,6 @@ class KeyboardView(
         val resRow = LinearLayout(context).apply { orientation = HORIZONTAL }
         searchResultsRow = resRow
         resScroll.addView(resRow)
-        addScrollHaptics(resScroll)
 
         val resultsHeight = if (mode == SearchMode.GIF) dp(120) else dp(52)
         val container = LinearLayout(context).apply { orientation = VERTICAL }
@@ -996,28 +1019,102 @@ class KeyboardView(
 
     private fun buildClipboardPanel(): View = LinearLayout(context).apply {
         orientation = VERTICAL
-        val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
-        val text = runCatching {
-            clip?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
-        }.getOrNull()
+        val items = ClipboardHistory.items(context)
 
-        val body = TextView(context).apply {
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-        }
-        if (text.isNullOrBlank()) {
-            body.text = "Clipboard is empty"
-            body.setTextColor(colTextSecondary)
-        } else {
-            body.text = text
-            body.setTextColor(colText)
-            body.background = drawable(R.drawable.key_letter_bg)
-            body.setOnClickListener { listener.onChar(text) }
-        }
+        // Header: a hint, or selection actions while selecting.
         addView(LinearLayout(context).apply {
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            addView(body, LayoutParams(MATCH, dp(190)))
-        }, LayoutParams(MATCH, dp(206)))
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(4), dp(8), dp(4))
+            if (clipSelecting) {
+                addView(TextView(context).apply {
+                    text = "${clipSelected.size} selected"
+                    setTextColor(colText)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                }, LayoutParams(0, WRAP, 1f))
+                addView(clipAction("Delete", colAccent) {
+                    ClipboardHistory.remove(context, clipSelected.toSet())
+                    clipSelecting = false; clipSelected.clear(); rebuildClipboard()
+                })
+                addView(clipAction("Cancel", colTextSecondary) {
+                    clipSelecting = false; clipSelected.clear(); rebuildClipboard()
+                })
+            } else {
+                addView(TextView(context).apply {
+                    text = "Recent  ·  long-press to select"
+                    setTextColor(colTextSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                }, LayoutParams(0, WRAP, 1f))
+                if (items.isNotEmpty()) addView(clipAction("Clear all", colTextSecondary) {
+                    ClipboardHistory.clear(context); rebuildClipboard()
+                })
+            }
+        }, LayoutParams(MATCH, dp(34)))
+
+        val scroll = ScrollView(context)
+        val list = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+        }
+        if (items.isEmpty()) {
+            list.addView(TextView(context).apply {
+                text = "Nothing yet. Copies you make while the keyboard is open show up here."
+                setTextColor(colTextSecondary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setPadding(dp(8), dp(16), dp(8), dp(16))
+            })
+        } else {
+            items.forEach { item -> list.addView(clipItemView(item)) }
+        }
+        scroll.addView(list)
+        addView(scroll, LayoutParams(MATCH, dp(172)))
         addView(panelBottomBar())
+    }
+
+    private fun clipAction(label: String, color: Int, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = label
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            setTextColor(color)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            background = drawable(R.drawable.key_flat_bg)
+            setOnClickListener { keyHaptic(); onClick() }
+        }
+
+    private fun clipItemView(item: String): View = TextView(context).apply {
+        text = item
+        maxLines = 2
+        ellipsize = TextUtils.TruncateAt.END
+        setTextColor(colText)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setPadding(dp(14), dp(12), dp(14), dp(12))
+        background = drawable(
+            if (clipSelecting && item in clipSelected) R.drawable.key_func_active_bg
+            else R.drawable.key_letter_bg
+        )
+        layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) }
+        setOnClickListener {
+            if (clipSelecting) {
+                if (!clipSelected.add(item)) clipSelected.remove(item)
+                rebuildClipboard()
+            } else {
+                keyHaptic()
+                ClipboardHistory.add(context, item) // bump to most-recent
+                listener.onChar(item)
+            }
+        }
+        setOnLongClickListener {
+            if (!clipSelecting) {
+                clipSelecting = true
+                clipSelected.clear()
+                clipSelected.add(item)
+                rebuildClipboard()
+            }
+            true
+        }
     }
 
     private fun panelBottomBar(): View = LinearLayout(context).apply {
@@ -1091,11 +1188,18 @@ class KeyboardView(
 
     private fun thirdRow(middle: List<String>, lettersPage: Boolean): View = row(50).apply {
         val shift = iconKey(R.drawable.ic_kb_shift, R.drawable.key_func_bg) {
-            shifted = !shifted
+            val now = System.currentTimeMillis()
+            when {
+                now - lastShiftTapAt < 300 -> { capsLock = true; shifted = true } // double-tap
+                capsLock -> { capsLock = false; shifted = false }                 // turn caps off
+                else -> shifted = !shifted                                        // one-shot shift
+            }
+            lastShiftTapAt = now
             applyShiftCase()
         }
         shiftKey = shift
-        addCell(this, shift, 1.5f)
+        // Wide/split layout: a normal-letter-width shift so z x c v sit further left.
+        addCell(this, shift, if (wide) 1f else 1.5f)
         middle.forEachIndexed { i, k ->
             val key = charKey(k, R.drawable.key_letter_bg, colText, 19f, gestureEligible = lettersPage)
             if (lettersPage) {
@@ -1287,7 +1391,8 @@ class KeyboardView(
             return
         }
         listener.onChar(currentCase(baseChar))
-        if (shifted && baseChar.length == 1 && baseChar[0] in 'a'..'z') {
+        // One-shot shift clears after a letter; caps lock stays on.
+        if (shifted && !capsLock && baseChar.length == 1 && baseChar[0] in 'a'..'z') {
             shifted = false
             applyShiftCase()
         }
@@ -1326,18 +1431,6 @@ class KeyboardView(
         return false
     }
 
-    /** A light "detent" tick as a scroller moves — denser the faster you scroll. */
-    private fun addScrollHaptics(scroller: View) {
-        var accum = 0
-        val step = dp(32)
-        scroller.setOnScrollChangeListener { _, sx, sy, osx, osy ->
-            accum += kotlin.math.abs(sx - osx) + kotlin.math.abs(sy - osy)
-            if (accum >= step) {
-                accum = 0
-                Haptics.tick(context, 4, 45)
-            }
-        }
-    }
 
     private fun handleBackspaceTouch(v: View, e: MotionEvent): Boolean {
         when (e.actionMasked) {
@@ -1463,7 +1556,7 @@ class KeyboardView(
                 setOnClickListener {
                     keyHaptic()
                     listener.onChar(if (shifted) opt.uppercase() else opt)
-                    if (shifted && baseChar.length == 1 && baseChar[0] in 'a'..'z') {
+                    if (shifted && !capsLock && baseChar.length == 1 && baseChar[0] in 'a'..'z') {
                         shifted = false; applyShiftCase()
                     }
                     alternatesPopup?.dismiss()

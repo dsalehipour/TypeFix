@@ -1,6 +1,7 @@
 package com.typefix.keyboard.ime
 
 import android.Manifest
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -86,11 +87,27 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private val gray = Color.parseColor("#9AA0A6")
     private val accent = Color.parseColor("#5B6BF5")
 
+    private val clipboardManager by lazy {
+        getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+    }
+    private val clipChangedListener = ClipboardManager.OnPrimaryClipChangedListener { captureClipboard() }
+
     override fun onCreate() {
         super.onCreate()
         settings = AppSettings.get(this)
         // Warm the swipe-typing dictionary off the UI thread.
         scope.launch { withContext(Dispatchers.Default) { GestureDecoder.ensureLoaded(applicationContext) } }
+        // Build a recent-clipboard history (Android only exposes the current clip).
+        runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
+    }
+
+    /** Records the current clip into history when readable (keyboard shown / on copy). */
+    private fun captureClipboard() {
+        val text = runCatching {
+            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(this)?.toString()
+        }.getOrNull()
+        ClipboardHistory.add(applicationContext, text)
     }
 
     override fun onCreateInputView(): View {
@@ -119,6 +136,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         isSecureField = info != null && isPasswordField(info)
         // Always reveal the normal letter keyboard, never the last panel/symbols page.
         keyboard?.resetToLetters()
+        captureClipboard()
 
         val s = settings.snapshot()
         if (s.provider.isLocal) {
@@ -154,6 +172,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         autoJob?.cancel()
         backspaceJob?.cancel()
         toneJob?.cancel()
+        runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         stopAllHaptics()
         speechRecognizer?.destroy()
         speechRecognizer = null
