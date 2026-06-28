@@ -66,6 +66,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var writingJob: Job? = null
     private var backspaceJob: Job? = null
     private var gifSearchJob: Job? = null
+    private var gifSuggestJob: Job? = null
     private var emojiSearchJob: Job? = null
     private var emojiSuggestJob: Job? = null
     private var toneJob: Job? = null
@@ -378,7 +379,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             }
             if (llm.isNotEmpty()) {
                 keyboard?.setEmojiSuggestions(llm)
-                emojiDoneHaptics()
+                panelDoneHaptics()
             } else {
                 keyboard?.setEmojiSuggestions(EmojiSuggester.suggest(text))
             }
@@ -402,12 +403,12 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
                 stopThinkingHaptics()
             }
             keyboard?.setEmojiSearchResults(results) // empty restores local matches
-            if (results.isNotEmpty()) emojiDoneHaptics()
+            if (results.isNotEmpty()) panelDoneHaptics()
         }
     }
 
-    /** Brief "writing" flurry to signal the emoji model finished (mirrors a fix). */
-    private suspend fun emojiDoneHaptics() {
+    /** Brief "writing" flurry to signal a panel model task finished (mirrors a fix). */
+    private suspend fun panelDoneHaptics() {
         startWritingHaptics()
         delay(200)
         stopWritingHaptics()
@@ -419,6 +420,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         emojiSuggestJob?.cancel(); emojiSuggestJob = null
         emojiSearchJob?.cancel(); emojiSearchJob = null
         gifSearchJob?.cancel(); gifSearchJob = null
+        gifSuggestJob?.cancel(); gifSuggestJob = null
         if (!correcting) {
             stopThinkingHaptics()
             stopWritingHaptics()
@@ -431,17 +433,29 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             keyboard?.flash("GIF search unavailable", orange)
             return
         }
-        keyboard?.setGifLoading()
         val s = settings.snapshot()
-        if (s.gifIntentEnabled) {
-            val text = currentInputConnection?.getTextBeforeCursor(200, 0)?.toString().orEmpty()
-            val intent = ReactionIntent.gifQueryFor(text)
-            if (intent != null) {
-                scope.launch { keyboard?.setGifResults(GifClient.search(intent, key)) }
-                return
+        val text = currentInputConnection?.getTextBeforeCursor(200, 0)?.toString().orEmpty()
+        keyboard?.setGifLoading()
+        gifSuggestJob?.cancel()
+        gifSuggestJob = scope.launch {
+            // Contextual suggestions like emoji: an LLM-derived query from the
+            // message (with the same thinking/done haptics), then the offline vibe
+            // map as a fallback, then trending if neither applies.
+            var query: String? = null
+            if (text.isNotBlank() && Corrector.isBackendReady(applicationContext, s)) {
+                startThinkingHaptics()
+                query = try {
+                    Corrector.suggestGifQuery(applicationContext, text, s)
+                } finally {
+                    stopThinkingHaptics()
+                }
             }
+            if (query.isNullOrBlank() && s.gifIntentEnabled) query = ReactionIntent.gifQueryFor(text)
+            val results = if (!query.isNullOrBlank()) GifClient.search(query, key)
+            else GifClient.featured(key)
+            keyboard?.setGifResults(results)
+            if (!query.isNullOrBlank() && results.isNotEmpty()) panelDoneHaptics()
         }
-        scope.launch { keyboard?.setGifResults(GifClient.featured(key)) }
     }
 
     override fun onGifSearchQuery(query: String, immediate: Boolean) {

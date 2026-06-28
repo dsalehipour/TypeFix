@@ -114,6 +114,30 @@ object Corrector {
         return CorrectionText.clean(raw, text).ifBlank { null }
     }
 
+    /**
+     * Asks the model for a short GIF search phrase that captures the message's
+     * mood/reaction (so the GIF panel can suggest contextually, like emoji).
+     * Returns null if no backend is ready or nothing usable comes back.
+     */
+    suspend fun suggestGifQuery(context: Context, text: String, s: SettingsSnapshot): String? {
+        if (text.isBlank()) return null
+        val engine = try {
+            engineFor(context, s) ?: return null
+        } catch (t: Throwable) {
+            return null
+        }
+        val prompt = "From the message, give a short GIF search phrase (2 to 4 words) that captures " +
+            "its mood or reaction, for finding a reaction GIF. Output ONLY the phrase — no quotes, " +
+            "no punctuation, no explanation."
+        val raw = try {
+            engine.generate(prompt, text)
+        } catch (t: Throwable) {
+            return null
+        }
+        val q = CorrectionText.clean(raw, "").lineSequence().firstOrNull()?.trim().orEmpty()
+        return q.takeIf { it.isNotBlank() && it.length <= 40 }
+    }
+
     /** Rewrites a rambling voice transcript into a concise written message. */
     suspend fun cleanupVoice(context: Context, transcript: String, s: SettingsSnapshot): String? {
         if (transcript.isBlank()) return null

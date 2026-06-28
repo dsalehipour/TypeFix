@@ -1030,15 +1030,11 @@ class KeyboardView(
         addView(abc, LinearLayout.LayoutParams(0, MATCH, 2f).apply { marginStart = dp(2); marginEnd = dp(2) })
         val spacer = View(context)
         addView(spacer, LinearLayout.LayoutParams(0, MATCH, 5f))
-        val back = ImageView(context).apply {
-            setImageResource(R.drawable.ic_kb_backspace)
-            setColorFilter(colIcon)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(13), dp(13), dp(13), dp(13))
-            background = drawable(R.drawable.key_func_bg)
-            setOnClickListener { listener.onBackspace() }
-        }
-        addView(back, LinearLayout.LayoutParams(0, MATCH, 2f).apply { marginStart = dp(2); marginEnd = dp(2) })
+        // Same backspace as the main keyboard: tap deletes one, hold accelerates,
+        // and a selection is deleted whole.
+        addView(backspaceKey(), LinearLayout.LayoutParams(0, MATCH, 2f).apply {
+            marginStart = dp(2); marginEnd = dp(2)
+        })
     }
 
     // ---- Keys ----
