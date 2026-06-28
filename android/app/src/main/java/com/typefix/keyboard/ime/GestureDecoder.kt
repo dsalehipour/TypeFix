@@ -20,6 +20,8 @@ object GestureDecoder {
 
     @Volatile
     private var words: List<String> = emptyList()
+    @Volatile
+    private var commonSet: Set<String> = emptySet()
 
     fun ensureLoaded(context: Context) {
         if (words.isNotEmpty()) return
@@ -30,7 +32,14 @@ object GestureDecoder {
                     seq.map { it.trim().lowercase() }.filter { it.length >= 2 && it.all { c -> c in 'a'..'z' } }.toList()
                 }
             }.getOrDefault(emptyList())
+            commonSet = words.toHashSet()
         }
+    }
+
+    /** True if [word] is an ordinary English word (so phrase memory can skip it). */
+    fun isCommon(context: Context, word: String): Boolean {
+        ensureLoaded(context)
+        return commonSet.contains(word.lowercase())
     }
 
     /** Returns the best-guess word for the crossed-key sequence, or null. */

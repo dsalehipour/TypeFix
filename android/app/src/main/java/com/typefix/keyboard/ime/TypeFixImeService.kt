@@ -156,7 +156,23 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         cancelInFlightFix()
         clearLastFix()
         currentInputConnection?.commitText(text, 1)
+        recordWordIfBoundary(text)
         scheduleAutoCorrection()
+    }
+
+    /** Feeds completed words to phrase memory so niche vocabulary gets learned. */
+    private fun recordWordIfBoundary(committed: String) {
+        if (!settings.snapshot().phraseMemoryEnabled) return
+        val c = committed.lastOrNull() ?: return
+        if (!(c.isWhitespace() || c in ".,!?;:")) return
+        val before = currentInputConnection?.getTextBeforeCursor(64, 0)?.toString() ?: return
+        var end = before.length
+        while (end > 0 && (before[end - 1].isWhitespace() || before[end - 1] in ".,!?;:\"')(")) end--
+        if (end == 0) return
+        var start = end
+        while (start > 0 && !before[start - 1].isWhitespace()) start--
+        val word = before.substring(start, end)
+        if (word.isNotEmpty()) PhraseMemory.record(applicationContext, word)
     }
 
     override fun onBackspace() {
@@ -323,6 +339,15 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             return
         }
         keyboard?.setGifLoading()
+        val s = settings.snapshot()
+        if (s.gifIntentEnabled) {
+            val text = currentInputConnection?.getTextBeforeCursor(200, 0)?.toString().orEmpty()
+            val intent = ReactionIntent.gifQueryFor(text)
+            if (intent != null) {
+                scope.launch { keyboard?.setGifResults(GifClient.search(intent, key)) }
+                return
+            }
+        }
         scope.launch { keyboard?.setGifResults(GifClient.featured(key)) }
     }
 
@@ -414,12 +439,21 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             override fun onResults(results: Bundle?) {
                 listening = false
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                if (!text.isNullOrBlank()) {
-                    clearLastFix()
+                if (text.isNullOrBlank()) {
+                    keyboard?.flash("Nothing heard", orange)
+                    return
+                }
+                clearLastFix()
+                if (settings.snapshot().voiceCleanupEnabled) {
+                    keyboard?.setStatus("Cleaning up…", accent)
+                    scope.launch {
+                        val cleaned = Corrector.cleanupVoice(applicationContext, text, settings.snapshot()) ?: text
+                        currentInputConnection?.commitText("$cleaned ", 1)
+                        keyboard?.flash("Inserted", green)
+                    }
+                } else {
                     currentInputConnection?.commitText("$text ", 1)
                     keyboard?.flash("Inserted", green)
-                } else {
-                    keyboard?.flash("Nothing heard", orange)
                 }
             }
             override fun onPartialResults(partialResults: Bundle?) {}

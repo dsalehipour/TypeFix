@@ -33,6 +33,9 @@ class AppSettings private constructor(context: Context) {
         const val LOCAL_MODEL_ID = "localModelId"
         const val VIBRATION = "vibrationEnabled"
         const val KLIPY_KEY = "klipyApiKey"
+        const val PHRASE_MEMORY = "phraseMemory"
+        const val VOICE_CLEANUP = "voiceCleanup"
+        const val GIF_INTENT = "gifIntent"
         fun apiKey(provider: Provider) = "apiKey_${provider.id}"
     }
 
@@ -100,6 +103,21 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getString(Keys.KLIPY_KEY, "").orEmpty()
         set(value) { prefs.edit().putString(Keys.KLIPY_KEY, value.trim()).apply(); publish() }
 
+    /** Learn frequently-typed niche words and stop "correcting" them. Off by default. */
+    var phraseMemoryEnabled: Boolean
+        get() = prefs.getBoolean(Keys.PHRASE_MEMORY, false)
+        set(value) { prefs.edit().putBoolean(Keys.PHRASE_MEMORY, value).apply(); publish() }
+
+    /** Rewrite rambling voice transcripts into a concise message. Off by default. */
+    var voiceCleanupEnabled: Boolean
+        get() = prefs.getBoolean(Keys.VOICE_CLEANUP, false)
+        set(value) { prefs.edit().putBoolean(Keys.VOICE_CLEANUP, value).apply(); publish() }
+
+    /** Seed GIF results from the message's emotional intent. Off by default. */
+    var gifIntentEnabled: Boolean
+        get() = prefs.getBoolean(Keys.GIF_INTENT, false)
+        set(value) { prefs.edit().putBoolean(Keys.GIF_INTENT, value).apply(); publish() }
+
     var protectedWords: List<String>
         get() = prefs.getString(Keys.PROTECTED_WORDS, "")
             .orEmpty()
@@ -154,6 +172,9 @@ class AppSettings private constructor(context: Context) {
             localModelId = localModelId,
             vibrationEnabled = vibrationEnabled,
             klipyApiKey = klipyApiKey,
+            phraseMemoryEnabled = phraseMemoryEnabled,
+            voiceCleanupEnabled = voiceCleanupEnabled,
+            gifIntentEnabled = gifIntentEnabled,
         )
     }
 
@@ -186,4 +207,7 @@ data class SettingsSnapshot(
     val localModelId: String,
     val vibrationEnabled: Boolean,
     val klipyApiKey: String,
+    val phraseMemoryEnabled: Boolean,
+    val voiceCleanupEnabled: Boolean,
+    val gifIntentEnabled: Boolean,
 )

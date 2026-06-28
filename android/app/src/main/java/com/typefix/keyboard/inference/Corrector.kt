@@ -3,6 +3,7 @@ package com.typefix.keyboard.inference
 import android.content.Context
 import com.typefix.keyboard.correction.CorrectionText
 import com.typefix.keyboard.correction.SpellCheckGuard
+import com.typefix.keyboard.ime.PhraseMemory
 import com.typefix.keyboard.model.Provider
 import com.typefix.keyboard.settings.SettingsSnapshot
 
@@ -28,7 +29,13 @@ object Corrector {
     suspend fun correct(context: Context, original: String, s: SettingsSnapshot): Result {
         if (original.isBlank()) return Result.Fixed(original, changed = false, possibleTypo = false)
 
-        val systemPrompt = CorrectionText.composedPrompt(s.protectedWords)
+        // Protect the user's own learned vocabulary so it's never "corrected".
+        val protectedAll = if (s.phraseMemoryEnabled) {
+            s.protectedWords + PhraseMemory.learned(context)
+        } else {
+            s.protectedWords
+        }
+        val systemPrompt = CorrectionText.composedPrompt(protectedAll)
 
         val raw = try {
             engineFor(context, s)?.generate(systemPrompt, original)
@@ -39,12 +46,31 @@ object Corrector {
 
         var cleaned = CorrectionText.clean(raw, original)
         if (s.autoFixResidualTypos) {
-            cleaned = SpellCheckGuard.autoFixed(context, cleaned, s.protectedWords)
+            cleaned = SpellCheckGuard.autoFixed(context, cleaned, protectedAll)
         }
         val possibleTypo = s.spellCheckAfterCorrection &&
-            SpellCheckGuard.hasLikelyTypo(context, cleaned, s.protectedWords)
+            SpellCheckGuard.hasLikelyTypo(context, cleaned, protectedAll)
 
         return Result.Fixed(cleaned, changed = cleaned != original, possibleTypo = possibleTypo)
+    }
+
+    /** Rewrites a rambling voice transcript into a concise written message. */
+    suspend fun cleanupVoice(context: Context, transcript: String, s: SettingsSnapshot): String? {
+        if (transcript.isBlank()) return null
+        val engine = try {
+            engineFor(context, s) ?: return null
+        } catch (t: Throwable) {
+            return null
+        }
+        val prompt = "Rewrite this spoken, rambling transcript into a clear, concise written " +
+            "message. Keep the meaning and every key detail; remove filler and false starts; " +
+            "fix grammar and punctuation. Output ONLY the rewritten message, nothing else."
+        val raw = try {
+            engine.generate(prompt, transcript)
+        } catch (t: Throwable) {
+            return null
+        }
+        return CorrectionText.clean(raw, transcript).ifBlank { null }
     }
 
     /**

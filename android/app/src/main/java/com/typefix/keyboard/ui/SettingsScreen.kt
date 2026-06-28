@@ -51,6 +51,7 @@ import com.typefix.keyboard.inference.ModelManager
 import com.typefix.keyboard.model.CorrectionMode
 import com.typefix.keyboard.model.Provider
 import com.typefix.keyboard.settings.AppSettings
+import com.typefix.keyboard.settings.SettingsSnapshot
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,6 +78,7 @@ fun SettingsScreen() {
             }
             ModeCard(settings, snapshot.correctionMode, snapshot.autoDelayMs, snapshot.autoMinChars)
             FeedbackCard(settings, snapshot.vibrationEnabled)
+            SmartFeaturesCard(settings, snapshot)
             GifCard(settings, snapshot.klipyApiKey)
             GuardrailCard(settings, snapshot.spellCheckAfterCorrection, snapshot.autoFixResidualTypos)
             ProtectedWordsCard(settings, snapshot.protectedWords)
@@ -302,6 +304,27 @@ private fun ModeCard(
                 onValueChange = { settings.autoMinChars = it.toInt() },
                 valueRange = AppSettings.AUTO_MIN_CHARS_RANGE.first.toFloat()..AppSettings.AUTO_MIN_CHARS_RANGE.last.toFloat(),
             )
+        }
+    }
+}
+
+@Composable
+private fun SmartFeaturesCard(settings: AppSettings, snapshot: SettingsSnapshot) {
+    SectionCard("Smart features (beta)") {
+        Text(
+            "All off by default. The LLM-powered ones need an on-device model or a " +
+                "cloud key set above.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ToggleRow("Phrase memory — learn your niche words & stop \"fixing\" them", snapshot.phraseMemoryEnabled) {
+            settings.phraseMemoryEnabled = it
+        }
+        ToggleRow("Voice note cleanup — turn rambling dictation into a tight message", snapshot.voiceCleanupEnabled) {
+            settings.voiceCleanupEnabled = it
+        }
+        ToggleRow("GIF reactions — suggest GIFs that match your message's vibe", snapshot.gifIntentEnabled) {
+            settings.gifIntentEnabled = it
         }
     }
 }
