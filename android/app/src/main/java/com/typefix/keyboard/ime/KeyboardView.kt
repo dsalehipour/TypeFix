@@ -59,6 +59,8 @@ interface KeyboardListener {
     fun onToneFix()
     /** Move the text caret by [steps] (negative = left) — space-bar trackpad. */
     fun onCursorMove(steps: Int)
+    /** The visible content panel changed (so in-flight panel work can be stopped). */
+    fun onContentPanelChanged()
 }
 
 /**
@@ -115,6 +117,12 @@ class KeyboardView(
         }
     }
     private var gifLoadingAnimator: ValueAnimator? = null
+    private var emojiLoadingAnimator: ValueAnimator? = null
+
+    // Tiles marked with this tag (emoji/GIF results) get a celebratory haptic when
+    // picked instead of the normal key-down tick.
+    private val panelTileTag = Any()
+    private val hitLoc = IntArray(2)
 
     private var micLongPressed = false
     private var micRunnable: Runnable? = null
@@ -439,10 +447,8 @@ class KeyboardView(
         add(toolIcon(R.drawable.ic_kb_emoji, colIcon) { togglePanel("emoji") })
         add(toolIcon(R.drawable.ic_kb_gif, colIcon) { togglePanel("gif") })
         add(toolIcon(R.drawable.ic_kb_clipboard, colIcon) { togglePanel("clipboard") })
-        // (Keyboard switching lives in the ⋯ menu and the mic long-press; no globe.)
-        val moreIcon = toolIcon(R.drawable.ic_kb_more, colIcon) {}
-        moreIcon.setOnClickListener { showOverflowMenu(moreIcon) }
-        add(moreIcon)
+        // Just Settings — switching/hiding the keyboard already live in the OS bar.
+        add(toolIcon(R.drawable.ic_kb_settings, colIcon) { listener.onOpenSettings() })
     }
 
     /** Tapping a toolbar icon opens its panel; tapping it again closes it. */
@@ -456,36 +462,6 @@ class KeyboardView(
             "gif" -> showSearch(SearchMode.GIF)
             "clipboard" -> showClipboard()
         }
-    }
-
-    /** ⋯ overflow menu: settings now lives here (plus switch/hide). */
-    private fun showOverflowMenu(anchor: View) {
-        val menu = LinearLayout(context).apply {
-            orientation = VERTICAL
-            background = popupBg()
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-        }
-        val items = listOf<Pair<String, () -> Unit>>(
-            "Settings" to { listener.onOpenSettings() },
-            "Switch keyboard" to { listener.onSwitchKeyboard() },
-            "Hide keyboard" to { listener.onHideKeyboard() },
-        )
-        val popup = PopupWindow(menu, dp(200), ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
-            isClippingEnabled = false
-            isOutsideTouchable = true
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        }
-        items.forEach { (label, action) ->
-            menu.addView(TextView(context).apply {
-                text = label
-                setTextColor(colText)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                setPadding(dp(16), dp(12), dp(16), dp(12))
-                background = drawable(R.drawable.key_flat_bg)
-                setOnClickListener { keyHaptic(); popup.dismiss(); action() }
-            }, LinearLayout.LayoutParams(MATCH, WRAP))
-        }
-        popup.showAsDropDown(anchor, -dp(150), 0)
     }
 
     /** ✨ key: tap = Fix now; hold 2s = toggle Auto (with a popup above the finger). */
@@ -666,10 +642,13 @@ class KeyboardView(
     // ---- Content panels ----
 
     private fun showKeyboard() {
+        listener.onContentPanelChanged()
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
         activePanel = "keyboard"
         emojiSuggestedRow = null
+        emojiLoadingAnimator?.cancel()
+        emojiLoadingAnimator = null
         if (keyRows.parent !== contentContainer) {
             (keyRows.parent as? ViewGroup)?.removeView(keyRows)
             contentContainer.removeAllViews()
@@ -678,6 +657,7 @@ class KeyboardView(
     }
 
     private fun showEmoji() {
+        listener.onContentPanelChanged()
         emojiPanelOpen = true
         searchMode = SearchMode.NONE
         activePanel = "emoji"
@@ -688,6 +668,7 @@ class KeyboardView(
     }
 
     private fun showClipboard() {
+        listener.onContentPanelChanged()
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
         activePanel = "clipboard"
@@ -698,8 +679,16 @@ class KeyboardView(
 
     /** Called by the IME with context-based (local or LLM) emoji suggestions. */
     fun setEmojiSuggestions(suggestions: List<String>) {
+        emojiLoadingAnimator?.cancel()
+        emojiLoadingAnimator = null
         emojiSuggestions = suggestions
         if (emojiPanelOpen) refreshEmojiSuggestions()
+    }
+
+    /** Shimmer in the suggested row while the model finds contextual emojis. */
+    fun setEmojiSuggestionsLoading() {
+        val row = emojiSuggestedRow ?: return
+        shimmerRow(row, count = 8, tileW = 40, tileH = 40)
     }
 
     private fun refreshEmojiSuggestions() {
@@ -716,8 +705,43 @@ class KeyboardView(
                 gravity = Gravity.CENTER
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
                 background = drawable(R.drawable.key_flat_bg)
-                setOnClickListener { listener.onChar(emoji) }
+                tag = panelTileTag
+                setOnClickListener { pickHaptic(); listener.onChar(emoji) }
             }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        }
+    }
+
+    /** A reusable shimmer of placeholder tiles in [row] (LLM/loading state). */
+    private fun shimmerRow(row: LinearLayout, count: Int, tileW: Int, tileH: Int) {
+        emojiLoadingAnimator?.cancel()
+        row.visibility = VISIBLE
+        row.removeAllViews()
+        val tiles = ArrayList<View>(count)
+        repeat(count) {
+            val tile = View(context).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(color(R.color.kb_key_func))
+                }
+                alpha = 0.35f
+            }
+            tiles.add(tile)
+            row.addView(tile, LinearLayout.LayoutParams(dp(tileW), dp(tileH)).apply {
+                marginStart = dp(3); marginEnd = dp(3)
+            })
+        }
+        emojiLoadingAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 800
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener { a ->
+                val t = a.animatedFraction
+                tiles.forEachIndexed { i, tl ->
+                    val ph = (t + i * 0.18f) % 1f
+                    tl.alpha = 0.25f + 0.45f * (1f - kotlin.math.abs(0.5f - ph) * 2f)
+                }
+            }
+            start()
         }
     }
 
@@ -768,13 +792,15 @@ class KeyboardView(
                             gravity = Gravity.CENTER
                             setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
                             background = drawable(R.drawable.key_flat_bg)
-                            setOnClickListener { listener.onChar(emoji) }
+                            tag = panelTileTag
+                            setOnClickListener { pickHaptic(); listener.onChar(emoji) }
                         }, LinearLayout.LayoutParams(0, dp(44), 1f))
                     }
                 })
             }
         }
         scroll.addView(list)
+        addScrollHaptics(scroll)
         addView(scroll, LayoutParams(MATCH, dp(168)))
         addView(panelBottomBar())
     }
@@ -783,6 +809,7 @@ class KeyboardView(
         if (searchMode == SearchMode.GIF) "\uD83D\uDD0D  Search GIFs" else "\uD83D\uDD0D  Search emoji"
 
     private fun showSearch(mode: SearchMode) {
+        listener.onContentPanelChanged()
         searchMode = mode
         emojiPanelOpen = false
         activePanel = if (mode == SearchMode.GIF) "gif" else "emoji"
@@ -816,6 +843,7 @@ class KeyboardView(
         val resRow = LinearLayout(context).apply { orientation = HORIZONTAL }
         searchResultsRow = resRow
         resScroll.addView(resRow)
+        addScrollHaptics(resScroll)
 
         val resultsHeight = if (mode == SearchMode.GIF) dp(120) else dp(52)
         val container = LinearLayout(context).apply { orientation = VERTICAL }
@@ -838,6 +866,8 @@ class KeyboardView(
         searchQueryLabel = null
         removeCallbacks(caretBlink)
         gifLoadingAnimator?.cancel()
+        emojiLoadingAnimator?.cancel()
+        emojiLoadingAnimator = null
         // The ✕ on any panel search returns to the normal keyboard.
         showKeyboard()
     }
@@ -868,9 +898,20 @@ class KeyboardView(
         }
     }
 
-    /** LLM-based semantic emoji results from the IME. */
+    /** Shimmer in the emoji search row while the model finds semantic matches. */
+    fun setEmojiSearchLoading() {
+        if (searchMode != SearchMode.EMOJI) return
+        val row = searchResultsRow ?: return
+        shimmerRow(row, count = 8, tileW = 44, tileH = 44)
+    }
+
+    /** LLM-based semantic emoji results from the IME (falls back to local). */
     fun setEmojiSearchResults(results: List<String>) {
-        if (searchMode == SearchMode.EMOJI && results.isNotEmpty()) renderEmojiResults(results)
+        if (searchMode != SearchMode.EMOJI) return
+        emojiLoadingAnimator?.cancel()
+        emojiLoadingAnimator = null
+        if (results.isNotEmpty()) renderEmojiResults(results)
+        else renderEmojiResults(EmojiSearchIndex.search(searchQuery.toString()))
     }
 
     /** Shimmering placeholder tiles while GIFs are being fetched. */
@@ -922,7 +963,8 @@ class KeyboardView(
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 background = drawable(R.drawable.key_flat_bg)
                 load(gif.previewUrl, gifLoader)
-                setOnClickListener { listener.onGifSelected(gif.gifUrl) }
+                tag = panelTileTag
+                setOnClickListener { pickHaptic(); listener.onGifSelected(gif.gifUrl) }
             }, LinearLayout.LayoutParams(WRAP, MATCH).apply { marginEnd = dp(4) })
         }
     }
@@ -936,7 +978,8 @@ class KeyboardView(
                 gravity = Gravity.CENTER
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
                 background = drawable(R.drawable.key_flat_bg)
-                setOnClickListener { listener.onChar(emoji) }
+                tag = panelTileTag
+                setOnClickListener { pickHaptic(); listener.onChar(emoji) }
             }, LinearLayout.LayoutParams(dp(48), MATCH))
         }
     }
@@ -1248,11 +1291,47 @@ class KeyboardView(
      *  panels, results). One tick per finger-down. Respects the vibration setting. */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         val a = ev.actionMasked
-        if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_POINTER_DOWN) keyHaptic()
+        if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_POINTER_DOWN) {
+            // Emoji/GIF tiles buzz when picked (onClick), not on touch-down.
+            if (activePanel == "keyboard" || !isOverPanelTile(ev.rawX, ev.rawY)) keyHaptic()
+        }
         return super.dispatchTouchEvent(ev)
     }
 
     private fun keyHaptic() = Haptics.tick(context, 18, 160)
+
+    /** Celebratory buzz when an emoji/GIF is chosen. */
+    private fun pickHaptic() = Haptics.pick(context)
+
+    private fun isOverPanelTile(rawX: Float, rawY: Float): Boolean = findPanelTile(this, rawX, rawY)
+
+    private fun findPanelTile(view: View, rawX: Float, rawY: Float): Boolean {
+        if (view.visibility != VISIBLE) return false
+        view.getLocationOnScreen(hitLoc)
+        if (rawX < hitLoc[0] || rawX > hitLoc[0] + view.width ||
+            rawY < hitLoc[1] || rawY > hitLoc[1] + view.height
+        ) return false
+        if (view.tag === panelTileTag) return true
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                if (findPanelTile(view.getChildAt(i), rawX, rawY)) return true
+            }
+        }
+        return false
+    }
+
+    /** A light "detent" tick as a scroller moves — denser the faster you scroll. */
+    private fun addScrollHaptics(scroller: View) {
+        var accum = 0
+        val step = dp(32)
+        scroller.setOnScrollChangeListener { _, sx, sy, osx, osy ->
+            accum += kotlin.math.abs(sx - osx) + kotlin.math.abs(sy - osy)
+            if (accum >= step) {
+                accum = 0
+                Haptics.tick(context, 4, 45)
+            }
+        }
+    }
 
     private fun handleBackspaceTouch(v: View, e: MotionEvent): Boolean {
         when (e.actionMasked) {

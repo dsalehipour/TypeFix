@@ -46,6 +46,15 @@ object Haptics {
         v.vibrate(effect)
     }
 
+    /** A quick, celebratory rising double-tap — used when an emoji/GIF is picked. */
+    fun pick(context: Context) {
+        waveform(
+            context,
+            timings = longArrayOf(0, 14, 16, 26),
+            amplitudes = intArrayOf(0, 150, 0, 255),
+        )
+    }
+
     /** Two stronger, quick buzzes — used to confirm the Auto toggle flipped. */
     fun doubleStrong(context: Context) {
         waveform(

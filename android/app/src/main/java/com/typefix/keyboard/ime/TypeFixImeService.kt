@@ -67,6 +67,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var backspaceJob: Job? = null
     private var gifSearchJob: Job? = null
     private var emojiSearchJob: Job? = null
+    private var emojiSuggestJob: Job? = null
     private var toneJob: Job? = null
     private var toneTarget: String? = null
     private var toneFlag: String? = null
@@ -356,26 +357,69 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     override fun onEmojiPanelShown() {
         val text = currentInputConnection?.getTextBeforeCursor(200, 0)?.toString().orEmpty()
-        // Instant, offline suggestions first…
-        keyboard?.setEmojiSuggestions(EmojiSuggester.suggest(text))
-        // …then refine with the model if one is configured and ready.
-        if (text.isNotBlank()) {
-            scope.launch {
-                val llm = Corrector.suggestEmojis(applicationContext, text, settings.snapshot())
-                if (llm.isNotEmpty()) keyboard?.setEmojiSuggestions(llm)
+        val s = settings.snapshot()
+        emojiSuggestJob?.cancel()
+        // No model (or empty message) → just the instant offline suggestions.
+        if (text.isBlank() || !Corrector.isBackendReady(applicationContext, s)) {
+            keyboard?.setEmojiSuggestions(EmojiSuggester.suggest(text))
+            return
+        }
+        // Otherwise show a loading shimmer + the "thinking" haptics while the model
+        // picks emojis that fit the message, then a brief "done" buzz.
+        emojiSuggestJob = scope.launch {
+            keyboard?.setEmojiSuggestionsLoading()
+            startThinkingHaptics()
+            val llm = try {
+                Corrector.suggestEmojis(applicationContext, text, s)
+            } finally {
+                stopThinkingHaptics()
+            }
+            if (llm.isNotEmpty()) {
+                keyboard?.setEmojiSuggestions(llm)
+                emojiDoneHaptics()
+            } else {
+                keyboard?.setEmojiSuggestions(EmojiSuggester.suggest(text))
             }
         }
     }
 
     override fun onEmojiSearchQuery(query: String) {
-        // Local fuzzy results already show instantly per keystroke. The LLM
-        // refine is debounced (and the prior one cancelled) so we don't queue a
-        // slow on-device search for every character typed.
+        // Local fuzzy results already show instantly per keystroke. The LLM refine
+        // is debounced (and the prior cancelled). When it runs we show a loading
+        // shimmer + the same thinking/done haptics as a correction.
+        val s = settings.snapshot()
         emojiSearchJob?.cancel()
+        if (!Corrector.isBackendReady(applicationContext, s)) return
         emojiSearchJob = scope.launch {
             delay(600)
-            val results = Corrector.searchEmojis(applicationContext, query, settings.snapshot())
-            if (results.isNotEmpty()) keyboard?.setEmojiSearchResults(results)
+            keyboard?.setEmojiSearchLoading()
+            startThinkingHaptics()
+            val results = try {
+                Corrector.searchEmojis(applicationContext, query, s)
+            } finally {
+                stopThinkingHaptics()
+            }
+            keyboard?.setEmojiSearchResults(results) // empty restores local matches
+            if (results.isNotEmpty()) emojiDoneHaptics()
+        }
+    }
+
+    /** Brief "writing" flurry to signal the emoji model finished (mirrors a fix). */
+    private suspend fun emojiDoneHaptics() {
+        startWritingHaptics()
+        delay(200)
+        stopWritingHaptics()
+    }
+
+    override fun onContentPanelChanged() {
+        // Leaving/switching a panel: stop any in-flight panel work + its haptics so
+        // the "thinking" buzz doesn't linger after the panel closes.
+        emojiSuggestJob?.cancel(); emojiSuggestJob = null
+        emojiSearchJob?.cancel(); emojiSearchJob = null
+        gifSearchJob?.cancel(); gifSearchJob = null
+        if (!correcting) {
+            stopThinkingHaptics()
+            stopWritingHaptics()
         }
     }
 

@@ -189,6 +189,14 @@ object Corrector {
             .take(12)
     }
 
+    /** True if a backend is configured & ready — callers use this to decide
+     *  whether to show an LLM "thinking" UI before actually calling. */
+    fun isBackendReady(context: Context, s: SettingsSnapshot): Boolean = when (s.provider) {
+        Provider.LOCAL -> ModelManager.isInstalled(context, s.localModelId.ifBlank { s.model })
+        Provider.OPENAI, Provider.ANTHROPIC -> s.apiKey.isNotBlank()
+        Provider.CUSTOM -> s.baseUrl.isNotBlank() && s.model.isNotBlank()
+    }
+
     /** Resolves the backend, or returns null when the provider isn't set up. */
     private suspend fun engineFor(context: Context, s: SettingsSnapshot): InferenceEngine? {
         return when (s.provider) {
