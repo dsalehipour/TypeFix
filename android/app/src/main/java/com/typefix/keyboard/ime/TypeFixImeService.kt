@@ -116,6 +116,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         isSecureField = info != null && isPasswordField(info)
+        // Always reveal the normal letter keyboard, never the last panel/symbols page.
+        keyboard?.resetToLetters()
 
         val s = settings.snapshot()
         if (s.provider.isLocal) {

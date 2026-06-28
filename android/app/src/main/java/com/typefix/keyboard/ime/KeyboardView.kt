@@ -641,6 +641,16 @@ class KeyboardView(
 
     // ---- Content panels ----
 
+    /** Reset to the normal letter layout — called when the keyboard is re-shown so
+     *  it never reopens to the panel/symbols page it was last on. */
+    fun resetToLetters() {
+        symbols = false
+        symbolsPage = 0
+        shifted = false
+        showKeyboard()
+        renderKeys()
+    }
+
     private fun showKeyboard() {
         listener.onContentPanelChanged()
         emojiPanelOpen = false
