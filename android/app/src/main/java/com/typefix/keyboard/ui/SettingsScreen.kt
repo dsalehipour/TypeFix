@@ -93,6 +93,12 @@ fun SettingsScreen() {
             GifCard(settings, snapshot.klipyApiKey)
             GuardrailCard(settings, snapshot.spellCheckAfterCorrection, snapshot.autoFixResidualTypos)
             ProtectedWordsCard(settings, snapshot.protectedWords)
+            Text(
+                "TypeFix v${com.typefix.keyboard.BuildConfig.VERSION_NAME} (${com.typefix.keyboard.BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(24.dp))
         }
     }

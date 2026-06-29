@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dsalehipour/typefix/releases/download/android-v0.1.0/TypeFix-Keyboard.apk">
+  <a href="https://github.com/dsalehipour/typefix/releases/download/android-latest/TypeFix-Keyboard.apk">
     <img src="https://img.shields.io/badge/Download%20TypeFix%20Keyboard%20for%20Android-.apk-3ddc84?style=for-the-badge&logo=android&logoColor=white" alt="Download TypeFix Keyboard for Android (.apk)">
   </a>
   <br>
@@ -47,7 +47,7 @@ emoji search, GIF search, swipe typing, and haptics.
 1. On your **Android phone**, open this repo's
    **[Releases page](https://github.com/dsalehipour/typefix/releases)** (sign in
    to GitHub if prompted) and tap
-   **[TypeFix-Keyboard.apk](https://github.com/dsalehipour/typefix/releases/download/android-v0.1.0/TypeFix-Keyboard.apk)**
+   **[TypeFix-Keyboard.apk](https://github.com/dsalehipour/typefix/releases/download/android-latest/TypeFix-Keyboard.apk)**
    to download it.
 2. Open the downloaded file. Android will ask to **allow installs from this
    source** — enable it, then tap **Install**.
