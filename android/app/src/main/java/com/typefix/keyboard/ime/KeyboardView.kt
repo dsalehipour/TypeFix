@@ -45,7 +45,7 @@ interface KeyboardListener {
     fun onEnter()
     fun onFix()
     fun onUndo()
-    fun onGestureWord(crossedKeys: String)
+    fun onGestureWord(word: String)
     fun onOpenSettings()
     fun onSwitchKeyboard()
     fun onEmojiPanelShown()
@@ -173,6 +173,8 @@ class KeyboardView(
         var lastCrossedChar: Char? = null
         val crossed = StringBuilder()
         var longPressRunnable: Runnable? = null
+        // Raw finger samples (screen coords) for the shape-based swipe decoder.
+        val points = ArrayList<FloatArray>(64)
     }
 
     private val charTouches = HashMap<Int, CharTouch>()
@@ -1453,6 +1455,7 @@ class KeyboardView(
                 if (gestureEligible) {
                     st.crossed.append(baseChar.lowercase())
                     st.lastCrossedChar = baseChar.lowercase().firstOrNull()
+                    st.points.add(floatArrayOf(sx, sy))
                 }
                 showPreview(v, currentCase(baseChar))
                 scheduleLongPress(st)
@@ -1467,6 +1470,10 @@ class KeyboardView(
                         cancelLongPress(st)
                     }
                     if (st.gesturing) {
+                        val last = st.points.lastOrNull()
+                        if (last == null || hypot(sx - last[0], sy - last[1]) > dp(2) && st.points.size < 300) {
+                            st.points.add(floatArrayOf(sx, sy))
+                        }
                         val ch = nearestLetterChar(sx, sy)
                         if (ch != null && ch != st.lastCrossedChar) {
                             st.crossed.append(ch)
@@ -1483,7 +1490,13 @@ class KeyboardView(
                 hidePreview()
                 if (st.longPressActive) return true
                 if (st.gesturing && st.gestureEligible && st.crossed.length >= 2 && searchMode == SearchMode.NONE) {
-                    listener.onGestureWord(st.crossed.toString())
+                    // Prefer the shape-based decode; fall back to the crossed-key
+                    // heuristic, then to just the starting letter.
+                    val centers = buildGestureCenters()
+                    val keyW = averageKeyWidth()
+                    val word = GestureDecoder.decodeGesture(st.points, centers, keyW)
+                        ?: GestureDecoder.decode(st.crossed.toString())
+                    if (word != null) listener.onGestureWord(word) else commitChar(st.baseChar)
                 } else {
                     commitChar(st.baseChar)
                 }
@@ -1590,6 +1603,25 @@ class KeyboardView(
             return
         }
         listener.onEnter()
+    }
+
+    /** Letter -> on-screen key center, for the shape-based swipe decoder. */
+    private fun buildGestureCenters(): HashMap<Char, FloatArray> {
+        val m = HashMap<Char, FloatArray>(32)
+        val loc = IntArray(2)
+        for ((view, ch) in gestureKeys) {
+            if (view.width == 0) continue
+            view.getLocationOnScreen(loc)
+            m[ch] = floatArrayOf(loc[0] + view.width / 2f, loc[1] + view.height / 2f)
+        }
+        return m
+    }
+
+    private fun averageKeyWidth(): Float {
+        var sum = 0f
+        var count = 0
+        for ((view, _) in gestureKeys) if (view.width > 0) { sum += view.width; count++ }
+        return if (count > 0) sum / count else dp(34).toFloat()
     }
 
     private fun nearestLetterChar(rawX: Float, rawY: Float): Char? {
@@ -1735,7 +1767,7 @@ class KeyboardView(
         isMotionEventSplittingEnabled = true
         // The extra height (beyond the key) plus keyBg's vertical inset sets the
         // gap between rows; tuned so keys stay the same height but rows breathe.
-        layoutParams = LayoutParams(MATCH, dp(heightDp) + dp(6))
+        layoutParams = LayoutParams(MATCH, dp(heightDp) + dp(8))
     }
 
     /**
@@ -1752,7 +1784,7 @@ class KeyboardView(
      *  mode uses a wider horizontal gap to match the Samsung keyboard. */
     private fun keyBg(res: Int): InsetDrawable {
         val h = if (wide) dp(6) else dp(2)
-        return InsetDrawable(drawable(res), h, dp(3), h, dp(3))
+        return InsetDrawable(drawable(res), h, dp(4), h, dp(4))
     }
 
     private fun currentCase(key: String) = if (shifted && !symbols) key.uppercase() else key

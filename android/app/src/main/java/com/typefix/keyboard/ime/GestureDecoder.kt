@@ -25,6 +25,8 @@ object GestureDecoder {
      * ambiguous homographs (its, well, ill, id, were, wed, shell, hell).
      */
     private val COMMON_FIXES: Map<String, String> = mapOf(
+        // the standalone pronoun
+        "i" to "I",
         // contraction stubs
         "im" to "I'm", "ive" to "I've", "youre" to "you're", "youve" to "you've",
         "youll" to "you'll", "youd" to "you'd", "hes" to "he's", "shes" to "she's",
@@ -130,10 +132,10 @@ object GestureDecoder {
         ensureLoaded(context)
         ensureValidLoaded(context)
         val w = word.lowercase().filter { it in 'a'..'z' }
-        if (w.length < 2 || words.isEmpty()) return null
-        // Forced fixes (contraction stubs + frequent typos) win over the dictionary,
-        // since the broad dictionary lists informal stubs like "hav"/"dont"/"wont"
-        // as words and can't insert the apostrophe these need.
+        if (w.isEmpty() || words.isEmpty()) return null
+        // Forced fixes (contraction stubs + frequent typos, plus the standalone "i")
+        // win over the dictionary, since the broad dictionary lists informal stubs
+        // like "hav"/"dont"/"wont" as words and can't insert the apostrophe these need.
         COMMON_FIXES[w]?.let { return it }
         if (w.length < 3) return null
         // A stray digit/symbol inside a word (e.g. "hav3", "hello2") is a typo too.
@@ -184,6 +186,92 @@ object GestureDecoder {
             }
         }
         return true
+    }
+
+    /**
+     * Shape-based swipe decoder (SHARK²-style): instead of the crude "is the word a
+     * subsequence of the crossed keys" heuristic, this scores each candidate by how
+     * closely the actual finger path matches the ideal path through that word's keys.
+     *
+     * @param points  finger samples in screen coordinates (start..end).
+     * @param centers map of letter -> on-screen key center [x,y].
+     * @param keyW    average key width, used for tolerances/thresholds.
+     */
+    fun decodeGesture(points: List<FloatArray>, centers: Map<Char, FloatArray>, keyW: Float): String? {
+        if (words.isEmpty() || points.size < 2 || centers.isEmpty() || keyW <= 0f) return null
+        val n = 24
+        val g = resample(points, n)
+        val start = points.first()
+        val end = points.last()
+        val anchorSq = (keyW * 1.6f) * (keyW * 1.6f)
+        val total = words.size.toFloat()
+        var best: String? = null
+        var bestScore = Float.MAX_VALUE
+        var rank = -1
+        for (word in words) {
+            rank++
+            if (word.length < 2) continue
+            // The first/last letters are anchored near where the swipe began/ended.
+            val firstC = centers[word[0]] ?: continue
+            val lastC = centers[word[word.length - 1]] ?: continue
+            if (distSq(firstC, start) > anchorSq || distSq(lastC, end) > anchorSq) continue
+            val poly = ArrayList<FloatArray>(word.length)
+            var ok = true
+            for (c in word) { val ce = centers[c]; if (ce == null) { ok = false; break }; poly.add(ce) }
+            if (!ok) continue
+            val rw = resample(poly, n)
+            var sum = 0f
+            for (i in 0 until n) sum += dist(g[i], rw[i])
+            // Mild bias toward more frequent words for near-ties.
+            val score = sum / n + (rank / total) * (keyW * 0.5f)
+            if (score < bestScore) { bestScore = score; best = word }
+        }
+        // Reject obvious non-matches so we can fall back to the starting letter.
+        return if (bestScore <= keyW * 1.9f) best else null
+    }
+
+    private fun dist(a: FloatArray, b: FloatArray): Float {
+        val dx = a[0] - b[0]; val dy = a[1] - b[1]
+        return kotlin.math.sqrt(dx * dx + dy * dy)
+    }
+
+    private fun distSq(a: FloatArray, b: FloatArray): Float {
+        val dx = a[0] - b[0]; val dy = a[1] - b[1]
+        return dx * dx + dy * dy
+    }
+
+    /** Resample a path to exactly [n] points spaced evenly along its length ($1-style). */
+    private fun resample(pts: List<FloatArray>, n: Int): List<FloatArray> {
+        if (pts.isEmpty()) return List(n) { floatArrayOf(0f, 0f) }
+        if (pts.size == 1) return List(n) { pts[0].copyOf() }
+        var pathLen = 0f
+        for (i in 1 until pts.size) pathLen += dist(pts[i - 1], pts[i])
+        if (pathLen <= 0f) return List(n) { pts[0].copyOf() }
+        val interval = pathLen / (n - 1)
+        val out = ArrayList<FloatArray>(n)
+        out.add(pts[0].copyOf())
+        var prev = pts[0]
+        var acc = 0f
+        var i = 1
+        val work = ArrayList(pts)
+        while (i < work.size) {
+            val cur = work[i]
+            val d = dist(prev, cur)
+            if (d > 0f && acc + d >= interval) {
+                val t = (interval - acc) / d
+                val np = floatArrayOf(prev[0] + t * (cur[0] - prev[0]), prev[1] + t * (cur[1] - prev[1]))
+                out.add(np)
+                work.add(i, np) // continue measuring from the inserted point
+                prev = np
+                acc = 0f
+            } else {
+                acc += d
+                prev = cur
+                i++
+            }
+        }
+        while (out.size < n) out.add(pts[pts.size - 1].copyOf())
+        return if (out.size > n) out.subList(0, n) else out
     }
 
     /** Returns the best-guess word for the crossed-key sequence, or null. */

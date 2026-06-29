@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">TypeFix</string>
     <string name="keyboard_name">TypeFix Keyboard</string>
+    <string name="process_text_label">Fix with TypeFix</string>
 </resources>

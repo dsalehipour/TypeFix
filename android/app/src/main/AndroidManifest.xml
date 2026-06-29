@@ -46,6 +46,20 @@
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- System-wide "Fix with TypeFix" text-selection action. Works in any app
+             with any keyboard (e.g. Samsung): select text → menu → Fix with TypeFix. -->
+        <activity
+            android:name=".ui.ProcessTextActivity"
+            android:exported="true"
+            android:label="@string/process_text_label"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- The keyboard itself. -->
         <service
             android:name=".ime.TypeFixImeService"

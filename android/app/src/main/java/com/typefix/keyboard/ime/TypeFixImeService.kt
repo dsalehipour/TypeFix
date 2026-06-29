@@ -254,8 +254,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         val word = before.takeLastWhile { !it.isWhitespace() }
         // Letters, or letters with a stray digit ("hav3") — but never pure numbers
         // or anything with punctuation. (autoFix itself gates short words: only the
-        // explicit fix map applies below 3 letters, e.g. "im".)
-        if (word.length < 2 || !word.all { it.isLetterOrDigit() } || word.none { it.isLetter() }) return false
+        // explicit fix map applies below 3 letters, e.g. "im", "i".)
+        if (word.isEmpty() || !word.all { it.isLetterOrDigit() } || word.none { it.isLetter() }) return false
         if (word.lowercase() in rejectedAutoFix) return false
         if (settings.snapshot().protectedWords.any { it.equals(word, ignoreCase = true) }) return false
         val fixLower = GestureDecoder.autoFix(applicationContext, word) ?: return false
@@ -534,19 +534,17 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         clearLastFix()
     }
 
-    override fun onGestureWord(crossedKeys: String) {
+    override fun onGestureWord(word: String) {
         clearLastFix()
-        scope.launch {
-            val word = withContext(Dispatchers.Default) { GestureDecoder.decode(crossedKeys) }
-            if (word != null) {
-                currentInputConnection?.commitText("$word ", 1)
-            } else {
-                // Short/ambiguous swipe that didn't resolve to a word — just type
-                // the starting letter so the gesture isn't lost entirely.
-                currentInputConnection?.commitText(crossedKeys.take(1), 1)
-            }
-            scheduleAutoCorrection()
-        }
+        clearPendingAutoFix()
+        val ic = currentInputConnection ?: return
+        // Capitalize like a normal first letter at a sentence start.
+        val out = if (shouldAutoCap()) word.replaceFirstChar { it.uppercase() } else word
+        ic.commitText("$out ", 1)
+        updateSuggestions()
+        refreshAutoCaps()
+        scheduleAutoCorrection()
+        scheduleToneCheck()
     }
 
     override fun onOpenSettings() {
