@@ -60,6 +60,7 @@ enum CorrectionText {
     You fix typing mistakes. Output the same text with every typo fixed: same words, same meaning, same order. Output ONLY the corrected text, nothing else.
 
     - Fix typos, transpositions, dropped/doubled letters, run-together words, and wrong words from finger slips (use sentence context). Fix homophones: to/too, your/you're, its/it's, there/their/they're, then/than. Expand lazy single letters to words: u→you, ur→your, r→are.
+    - Also fix correctly-spelled words that are clearly wrong for the sentence (swipe, autocorrect, or dictation slips): replace a real word that doesn't fit with the word obviously meant, judged from the surrounding words — e.g. "hats up" → "what's up", "I'll meat you" → "I'll meet you". Pick the word that fits; never add ideas or change the meaning.
     - Keep abbreviations and shorthand EXACTLY (OOO, EOD, MVP, PDF, API, URL, CI, lol, ngl, pls, btw, idk, imo, tbh) and keep contractions (write isn't, can't, don't, never "is not", "can not", "do not"). Never expand, drop, or add words, and never change the meaning.
     - Decode a garbled word to the nearest real word that fits the sentence, never an unrelated word, and never capitalize an unknown word as if it were a name.
     - Capitalize sentence starts and the word "I". Don't insert punctuation in the middle of a sentence.
@@ -74,6 +75,12 @@ enum CorrectionText {
 
     Input: ill be ooo next weke, pls dont merge the brnach
     Output: I'll be OOO next week, pls don't merge the branch
+
+    Input: yo hats up man
+    Output: Yo what's up man
+
+    Input: are we still on four lunch tomorow
+    Output: Are we still on for lunch tomorrow?
     """
 
     /// The system prompt plus an instruction to never alter the user's protected
