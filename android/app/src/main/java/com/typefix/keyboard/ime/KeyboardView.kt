@@ -62,6 +62,8 @@ interface KeyboardListener {
     fun onCursorMove(steps: Int)
     /** The visible content panel changed (so in-flight panel work can be stopped). */
     fun onContentPanelChanged()
+    /** A suggestion/typo-fix chip was tapped — replace the current word with it. */
+    fun onSuggestionPicked(word: String)
 }
 
 /**
@@ -80,6 +82,9 @@ class KeyboardView(
 ) : LinearLayout(context) {
 
     private val toolbarIcons: LinearLayout
+    private val suggestionRow: LinearLayout
+    private var lastSuggestions: List<String> = emptyList()
+    private var suggestionsCollapsed = false
     private val statusRow: LinearLayout
     private val statusLabel: TextView
     private val undoButton: TextView
@@ -141,6 +146,10 @@ class KeyboardView(
     /** Wide/unfolded devices (e.g. Z Fold) get a center gap + split spacebar. */
     private val wide: Boolean get() = resources.configuration.screenWidthDp >= 600
 
+    /** Left/right margin. Split mode mirrors Samsung (~5.3% of width). */
+    private fun sidePadding(): Int =
+        if (wide) dp((resources.configuration.screenWidthDp * 0.053f).toInt()) else dp(12)
+
     private val colBg = color(R.color.kb_bg)
     private val colText = color(R.color.kb_key_text)
     private val colTextSecondary = color(R.color.kb_key_text_secondary)
@@ -191,10 +200,10 @@ class KeyboardView(
     init {
         orientation = VERTICAL
         setBackgroundColor(colBg)
-        // No top padding: the action bar sits flush against the top edge. Wider
-        // side padding keeps the keys narrower (less thumb reach), and extra
-        // bottom padding lifts the space bar up off the very edge.
-        setPadding(dp(12), 0, dp(12), dp(20))
+        // No top padding: the action bar sits flush against the top edge. Side
+        // padding matches Samsung (see sidePadding); extra bottom lifts the space
+        // bar up off the very edge.
+        setPadding(sidePadding(), 0, sidePadding(), dp(20))
         // Let a second finger hit another key while one is still held (fast typing).
         isMotionEventSplittingEnabled = true
 
@@ -207,11 +216,10 @@ class KeyboardView(
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.ime()
             )
-            // Leave blank space on the left/right so the keys don't run to the
-            // edges (easier for thumbs to reach) — more on wide/unfolded screens.
-            val side = if (wide) dp(56) else dp(12)
+            // Side margin matches the Samsung keyboard: ~5.3% of the screen width
+            // in split mode (measured), a small fixed margin otherwise.
             // Lift the space bar up a little above the nav area.
-            v.setPadding(side, 0, side, maxOf(dp(8), bars.bottom) + dp(12))
+            v.setPadding(sidePadding(), 0, sidePadding(), maxOf(dp(8), bars.bottom) + dp(12))
             insets
         }
 
@@ -281,9 +289,16 @@ class KeyboardView(
             addView(undoButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
         }
         buildToolbar()
+        suggestionRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(color(R.color.kb_actionbar))
+            visibility = GONE
+        }
         val toolbar = FrameLayout(context).apply {
             setBackgroundColor(color(R.color.kb_actionbar))
             addView(toolbarIcons, FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(suggestionRow, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(statusRow, FrameLayout.LayoutParams(MATCH, MATCH))
         }
         addView(toolbar, LayoutParams(MATCH, dp(46)))
@@ -372,6 +387,7 @@ class KeyboardView(
         toneButton.visibility = GONE
         statusRow.visibility = VISIBLE
         toolbarIcons.visibility = INVISIBLE
+        suggestionRow.visibility = GONE
     }
 
     /** "⚠ This may sound defensive · Soften" — shown when a tone issue is found. */
@@ -384,6 +400,7 @@ class KeyboardView(
         toneButton.visibility = VISIBLE
         statusRow.visibility = VISIBLE
         toolbarIcons.visibility = INVISIBLE
+        suggestionRow.visibility = GONE
         postDelayed(revertStatus, 8000)
     }
 
@@ -408,6 +425,7 @@ class KeyboardView(
         cancelButton.visibility = VISIBLE
         statusRow.visibility = VISIBLE
         toolbarIcons.visibility = INVISIBLE
+        suggestionRow.visibility = GONE
     }
 
     /** Shows a persistent "Fixed · Undo" affordance until the user types or undoes. */
@@ -420,6 +438,7 @@ class KeyboardView(
         toneButton.visibility = GONE
         statusRow.visibility = VISIBLE
         toolbarIcons.visibility = INVISIBLE
+        suggestionRow.visibility = GONE
         postDelayed(revertStatus, 6000)
     }
 
@@ -431,7 +450,70 @@ class KeyboardView(
         undoButton.visibility = GONE
         cancelButton.visibility = GONE
         toneButton.visibility = GONE
-        toolbarIcons.visibility = VISIBLE
+        refreshActionBar()
+    }
+
+    // ---- Live suggestions (autocomplete + typo fix) ----
+
+    /** Sets the typo-fix/autocomplete chips. Empty hides them (and un-collapses). */
+    fun setSuggestions(list: List<String>) {
+        lastSuggestions = list
+        if (list.isEmpty()) suggestionsCollapsed = false
+        if (statusRow.visibility != VISIBLE) refreshActionBar()
+    }
+
+    private fun clearSuggestions() {
+        lastSuggestions = emptyList()
+        suggestionsCollapsed = false
+        if (statusRow.visibility != VISIBLE) {
+            suggestionRow.visibility = GONE
+            toolbarIcons.visibility = VISIBLE
+        }
+    }
+
+    /** Status > suggestion chips > icons. */
+    private fun refreshActionBar() {
+        if (statusRow.visibility == VISIBLE) {
+            suggestionRow.visibility = GONE
+            return
+        }
+        if (lastSuggestions.isNotEmpty() && !suggestionsCollapsed) {
+            renderSuggestionChips(lastSuggestions)
+            suggestionRow.visibility = VISIBLE
+            toolbarIcons.visibility = INVISIBLE
+        } else {
+            suggestionRow.visibility = GONE
+            toolbarIcons.visibility = VISIBLE
+        }
+    }
+
+    private fun renderSuggestionChips(list: List<String>) {
+        suggestionRow.removeAllViews()
+        // "‹" collapses back to the icon toolbar (Samsung-style).
+        suggestionRow.addView(TextView(context).apply {
+            text = "‹"
+            gravity = Gravity.CENTER
+            setTextColor(colIcon)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            background = drawable(R.drawable.key_flat_bg)
+            setOnClickListener { keyHaptic(); suggestionsCollapsed = true; refreshActionBar() }
+        }, LinearLayout.LayoutParams(dp(40), MATCH))
+        list.take(3).forEachIndexed { i, word ->
+            if (i > 0) suggestionRow.addView(View(context).apply {
+                setBackgroundColor(color(R.color.kb_key_func))
+            }, LinearLayout.LayoutParams(dp(1), dp(22)))
+            suggestionRow.addView(TextView(context).apply {
+                text = word
+                gravity = Gravity.CENTER
+                isAllCaps = false
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(colText)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                background = drawable(R.drawable.key_flat_bg)
+                setOnClickListener { keyHaptic(); listener.onSuggestionPicked(word) }
+            }, LinearLayout.LayoutParams(0, MATCH, 1f))
+        }
     }
 
     // ---- Toolbar ----
@@ -661,6 +743,7 @@ class KeyboardView(
 
     private fun showKeyboard() {
         listener.onContentPanelChanged()
+        clearSuggestions()
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
         activePanel = "keyboard"
@@ -676,6 +759,7 @@ class KeyboardView(
 
     private fun showEmoji() {
         listener.onContentPanelChanged()
+        clearSuggestions()
         emojiPanelOpen = true
         searchMode = SearchMode.NONE
         activePanel = "emoji"
@@ -687,6 +771,7 @@ class KeyboardView(
 
     private fun showClipboard() {
         listener.onContentPanelChanged()
+        clearSuggestions()
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
         activePanel = "clipboard"
@@ -844,6 +929,7 @@ class KeyboardView(
 
     private fun showSearch(mode: SearchMode) {
         listener.onContentPanelChanged()
+        clearSuggestions()
         searchMode = mode
         emojiPanelOpen = false
         activePanel = if (mode == SearchMode.GIF) "gif" else "emoji"
@@ -1630,9 +1716,12 @@ class KeyboardView(
     }
 
     /** Wraps a key drawable in an inset so the visible key is smaller than its
-     *  (fully touchable) cell — this is what creates the gaps between keys. */
-    private fun keyBg(res: Int): InsetDrawable =
-        InsetDrawable(drawable(res), dp(2), dp(2), dp(2), dp(2))
+     *  (fully touchable) cell — this is what creates the gaps between keys. Split
+     *  mode uses a wider horizontal gap to match the Samsung keyboard. */
+    private fun keyBg(res: Int): InsetDrawable {
+        val h = if (wide) dp(6) else dp(2)
+        return InsetDrawable(drawable(res), h, dp(2), h, dp(2))
+    }
 
     private fun currentCase(key: String) = if (shifted && !symbols) key.uppercase() else key
 
@@ -1669,7 +1758,7 @@ class KeyboardView(
     companion object {
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-        private const val CENTER_GAP = 3.2f
+        private const val CENTER_GAP = 3.3f
 
         private val NUMBERS = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
         private val ROW1 = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")

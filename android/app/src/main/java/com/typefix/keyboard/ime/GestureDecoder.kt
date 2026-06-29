@@ -42,6 +42,67 @@ object GestureDecoder {
         return commonSet.contains(word.lowercase())
     }
 
+    /**
+     * Live suggestions for a partially typed [word]: frequency-ordered prefix
+     * completions first (autocomplete), then near-misses within edit distance 1
+     * (typo fixes, incl. transpositions like "teh" → "the").
+     */
+    fun suggest(word: String, limit: Int = 3): List<String> {
+        val w = word.lowercase().filter { it in 'a'..'z' }
+        if (w.length < 2 || words.isEmpty()) return emptyList()
+        val out = LinkedHashSet<String>()
+        for (cand in words) {
+            if (cand.length > w.length && cand.startsWith(w)) {
+                out.add(cand)
+                if (out.size >= limit) return out.toList()
+            }
+        }
+        var scanned = 0
+        for (cand in words) {
+            if (scanned++ > 12000) break
+            if (cand == w || cand in out || kotlin.math.abs(cand.length - w.length) > 1) continue
+            if (within1(cand, w)) {
+                out.add(cand)
+                if (out.size >= limit) break
+            }
+        }
+        return out.toList()
+    }
+
+    /** Damerau-Levenshtein distance <= 1 (substitution / insert / delete / swap). */
+    private fun within1(a: String, b: String): Boolean {
+        if (a == b) return true
+        val la = a.length
+        val lb = b.length
+        if (la == lb) {
+            var diff = 0
+            var firstDiff = -1
+            for (i in 0 until la) if (a[i] != b[i]) {
+                diff++
+                if (firstDiff < 0) firstDiff = i
+                if (diff > 2) return false
+            }
+            if (diff <= 1) return true
+            // diff == 2: allow a single adjacent transposition
+            val i = firstDiff
+            return i + 1 < la && a[i] == b[i + 1] && a[i + 1] == b[i] &&
+                a.substring(i + 2) == b.substring(i + 2)
+        }
+        val longer = if (la > lb) a else b
+        val shorter = if (la > lb) b else a
+        var i = 0
+        var j = 0
+        var skipped = false
+        while (i < longer.length && j < shorter.length) {
+            if (longer[i] == shorter[j]) { i++; j++ } else {
+                if (skipped) return false
+                skipped = true
+                i++
+            }
+        }
+        return true
+    }
+
     /** Returns the best-guess word for the crossed-key sequence, or null. */
     fun decode(crossed: String): String? {
         val path = crossed.lowercase().filter { it in 'a'..'z' }

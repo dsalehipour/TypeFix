@@ -70,6 +70,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var gifSuggestJob: Job? = null
     private var emojiSearchJob: Job? = null
     private var emojiSuggestJob: Job? = null
+    private var suggestJob: Job? = null
     private var toneJob: Job? = null
     private var toneTarget: String? = null
     private var toneFlag: String? = null
@@ -188,6 +189,38 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         keyboard?.clearTone()
         currentInputConnection?.commitText(text, 1)
         recordWordIfBoundary(text)
+        updateSuggestions()
+        scheduleAutoCorrection()
+        scheduleToneCheck()
+    }
+
+    /** Live typo-fix/autocomplete chips for the word currently being typed. */
+    private fun updateSuggestions() {
+        suggestJob?.cancel()
+        if (isSecureField) { keyboard?.setSuggestions(emptyList()); return }
+        val before = currentInputConnection?.getTextBeforeCursor(48, 0)?.toString().orEmpty()
+        val word = before.takeLastWhile { !it.isWhitespace() }
+        if (word.length < 2 || !word.all { it.isLetter() }) {
+            keyboard?.setSuggestions(emptyList())
+            return
+        }
+        suggestJob = scope.launch {
+            val sugg = withContext(Dispatchers.Default) { GestureDecoder.suggest(word) }
+            keyboard?.setSuggestions(sugg)
+        }
+    }
+
+    override fun onSuggestionPicked(word: String) {
+        cancelInFlightFix()
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(48, 0)?.toString().orEmpty()
+        val partial = before.takeLastWhile { !it.isWhitespace() }
+        ic.beginBatchEdit()
+        if (partial.isNotEmpty()) ic.deleteSurroundingText(partial.length, 0)
+        ic.commitText("$word ", 1)
+        ic.endBatchEdit()
+        keyboard?.setSuggestions(emptyList())
+        recordWordIfBoundary(" ")
         scheduleAutoCorrection()
         scheduleToneCheck()
     }
@@ -212,6 +245,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         clearLastFix()
         keyboard?.clearTone()
         if (!deleteSelectionIfAny()) currentInputConnection?.deleteSurroundingText(1, 0)
+        updateSuggestions()
         scheduleAutoCorrection()
         scheduleToneCheck()
     }
@@ -250,6 +284,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onBackspaceReleased() {
         backspaceJob?.cancel()
         backspaceJob = null
+        updateSuggestions()
         scheduleAutoCorrection()
     }
 
