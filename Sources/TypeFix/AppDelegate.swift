@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
         setupStatusItem()
+        setupServices()
 
         engine.onStateChange = { [weak self] in self?.refreshUI() }
         engine.onError = { [weak self] message in self?.handleError(message) }
@@ -105,6 +106,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editMenuItem.submenu = editMenu
 
         NSApp.mainMenu = mainMenu
+    }
+
+    // MARK: - Services (system-wide "Fix with TypeFix")
+
+    /// Register the macOS Services provider so "Fix with TypeFix" appears in the
+    /// right-click / Services menu whenever text is selected in any app.
+    private func setupServices() {
+        NSApp.servicesProvider = self
+        NSUpdateDynamicServices()
+    }
+
+    /// Invoked by the system when the user picks Services → Fix with TypeFix.
+    /// We don't return text via the pasteboard; instead we fix the still-active
+    /// selection in place (Accessibility, with a clipboard-paste fallback), which
+    /// matches the hotkey behavior and works in editable fields.
+    @objc func fixSelectedText(
+        _ pboard: NSPasteboard,
+        userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString?>?
+    ) {
+        guard AXIsProcessTrusted() else {
+            handleError("Grant Accessibility to TypeFix first.")
+            requestAccessibilityPrompt()
+            return
+        }
+        engine.fixSelectionNow()
     }
 
     // MARK: - Status bar

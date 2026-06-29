@@ -1548,7 +1548,7 @@ class KeyboardView(
         return super.dispatchTouchEvent(ev)
     }
 
-    private fun keyHaptic() = Haptics.tick(context, 18, 160)
+    private fun keyHaptic() = Haptics.tick(context, 14, 120)
 
     /** Celebratory buzz when an emoji/GIF is chosen. */
     private fun pickHaptic() = Haptics.pick(context)
@@ -1844,8 +1844,9 @@ class KeyboardView(
         // changes between the two pages. Each page is [row1(10), row2(10), row3(7)];
         // the shared number row (1-0) is added separately.
         private val SYM_PAGE1 = listOf(
-            listOf("+", "×", "÷", "=", "/", "_", "<", ">", "[", "]"),
+            // The shifted number symbols sit directly under the number row.
             listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")"),
+            listOf("+", "×", "÷", "=", "/", "_", "<", ">", "[", "]"),
             listOf("-", "'", "\"", ":", ";", ",", "?"),
         )
         private val SYM_PAGE2 = listOf(

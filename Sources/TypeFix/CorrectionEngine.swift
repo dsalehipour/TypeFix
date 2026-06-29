@@ -95,6 +95,17 @@ final class CorrectionEngine {
     /// Menu equivalent of pressing both Shift keys.
     func triggerHotkey() { handleHotkey() }
 
+    /// Fix the current selection right now (used by the macOS "Fix with TypeFix"
+    /// Services menu item). Reads the highlighted text via Accessibility, falling
+    /// back to a clipboard copy for Electron/web apps, then replaces it in place.
+    func fixSelectionNow() {
+        syncModeIfNeeded()
+        guard isArmed, state == .idle else { return }
+        attemptSelectionFix { [weak self] handled in
+            if !handled { self?.onError?("Select some text first, then choose Fix with TypeFix.") }
+        }
+    }
+
     func setMode(_ newMode: CorrectionMode) {
         guard settings.correctionMode != newMode else { return }
         settings.correctionMode = newMode
