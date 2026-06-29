@@ -1386,7 +1386,8 @@ class KeyboardView(
                     spaceAnchorX = e.rawX
                 }
                 if (spaceCursorMode) {
-                    val step = dp(10).toFloat()
+                    // Shorter travel per character => the caret moves faster.
+                    val step = dp(6).toFloat()
                     val steps = ((e.rawX - spaceAnchorX) / step).toInt()
                     if (steps != 0) {
                         listener.onCursorMove(steps)
