@@ -146,9 +146,9 @@ class KeyboardView(
     /** Wide/unfolded devices (e.g. Z Fold) get a center gap + split spacebar. */
     private val wide: Boolean get() = resources.configuration.screenWidthDp >= 600
 
-    /** Left/right margin. Split mode mirrors Samsung (~5.3% of width). */
+    /** Left/right margin. Split mode mirrors Samsung (~5.2% of width). */
     private fun sidePadding(): Int =
-        if (wide) dp((resources.configuration.screenWidthDp * 0.053f).toInt()) else dp(12)
+        if (wide) dp((resources.configuration.screenWidthDp * 0.052f).toInt()) else dp(12)
 
     private val colBg = color(R.color.kb_bg)
     private val colText = color(R.color.kb_key_text)
@@ -1253,7 +1253,10 @@ class KeyboardView(
     }
 
     private fun letterRow(keys: List<String>, indent: Float, splitAfter: Int): View = row(50).apply {
-        if (!wide && indent > 0f) addCell(this, View(context), indent)
+        // The half-key indent applies in split mode too — Samsung staggers the
+        // home row (a starts ~½ key right of q), so the indent + a matching
+        // trailing gap keep every letter key the same width across rows.
+        if (indent > 0f) addCell(this, View(context), indent)
         keys.forEachIndexed { i, k ->
             val key = charKey(k, R.drawable.key_letter_bg, colText, 19f, gestureEligible = true)
             letterKeys.add(key)
@@ -1261,7 +1264,7 @@ class KeyboardView(
             addCell(this, key, 1f)
             if (wide && i == splitAfter - 1) addCenterGap(this)
         }
-        if (!wide && indent > 0f) addCell(this, View(context), indent)
+        if (indent > 0f) addCell(this, View(context), indent)
     }
 
     private fun addCenterGap(row: LinearLayout) = addCell(row, View(context), CENTER_GAP)
@@ -1284,8 +1287,8 @@ class KeyboardView(
             applyShiftCase()
         }
         shiftKey = shift
-        // Wide/split layout: a normal-letter-width shift so z x c v sit further left.
-        addCell(this, shift, if (wide) 1f else 1.5f)
+        // ~1.5 key-widths, matching Samsung (z sits ~1.5 keys in on the bottom row).
+        addCell(this, shift, 1.5f)
         middle.forEachIndexed { i, k ->
             val key = charKey(k, R.drawable.key_letter_bg, colText, 19f, gestureEligible = lettersPage)
             if (lettersPage) {
@@ -1315,9 +1318,11 @@ class KeyboardView(
         }, 1.5f)
         addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
         if (wide) {
-            addCell(this, spaceKey(), 3.6f)
+            // !#1(1.5)+,(1)+space(2.5)+gap+space(2.5)+.(1)+⏎(1.5) = 10 + gap, so the
+            // bottom row lines up on the same grid as the letter rows.
+            addCell(this, spaceKey(), 2.5f)
             addCenterGap(this)
-            addCell(this, spaceKey(), 3.6f)
+            addCell(this, spaceKey(), 2.5f)
         } else {
             addCell(this, spaceKey(), 5f)
         }
@@ -1758,7 +1763,7 @@ class KeyboardView(
     companion object {
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-        private const val CENTER_GAP = 3.3f
+        private const val CENTER_GAP = 3.2f
 
         private val NUMBERS = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
         private val ROW1 = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
