@@ -200,10 +200,9 @@ class KeyboardView(
     init {
         orientation = VERTICAL
         setBackgroundColor(colBg)
-        // No top padding: the action bar sits flush against the top edge. Side
-        // padding matches Samsung (see sidePadding); extra bottom lifts the space
-        // bar up off the very edge.
-        setPadding(sidePadding(), 0, sidePadding(), dp(20))
+        // No horizontal padding on the root so the action bar is full-bleed; the
+        // side margin is applied to the keys (contentContainer) instead.
+        setPadding(0, 0, 0, dp(8))
         // Let a second finger hit another key while one is still held (fast typing).
         isMotionEventSplittingEnabled = true
 
@@ -216,10 +215,9 @@ class KeyboardView(
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.ime()
             )
-            // Side margin matches the Samsung keyboard: ~5.3% of the screen width
-            // in split mode (measured), a small fixed margin otherwise.
-            // Lift the space bar up a little above the nav area.
-            v.setPadding(sidePadding(), 0, sidePadding(), maxOf(dp(8), bars.bottom) + dp(12))
+            v.setPadding(0, 0, 0, maxOf(dp(6), bars.bottom) + dp(2))
+            // Keys get the Samsung-style side margin + a small gap below the action bar.
+            contentContainer.setPadding(sidePadding(), dp(6), sidePadding(), 0)
             insets
         }
 
@@ -315,10 +313,15 @@ class KeyboardView(
             orientation = VERTICAL
             isMotionEventSplittingEnabled = true
         }
-        contentContainer = FrameLayout(context).apply { isMotionEventSplittingEnabled = true }
+        contentContainer = FrameLayout(context).apply {
+            isMotionEventSplittingEnabled = true
+            // Keys are inset (Samsung side margin) with a small gap below the bar;
+            // the action bar above stays full-bleed.
+            setPadding(sidePadding(), dp(6), sidePadding(), 0)
+        }
         addView(contentContainer, LayoutParams(MATCH, WRAP))
 
-        addView(buildBottomSystemBar(), LayoutParams(MATCH, dp(42)))
+        addView(buildBottomSystemBar(), LayoutParams(MATCH, dp(32)))
 
         renderKeys()
         showKeyboard()
@@ -1241,18 +1244,33 @@ class KeyboardView(
 
     private fun renderSymbols() {
         val rows = if (symbolsPage == 0) SYM_PAGE1 else SYM_PAGE2
-        rows.forEach { keyRows.addView(symbolRow(it)) }
+        keyRows.addView(symbolRow(rows[0]))
+        keyRows.addView(symbolRow(rows[1]))
+        keyRows.addView(symbolThirdRow(rows[2]))
         keyRows.addView(symbolsBottomRow())
     }
 
-    private fun numberRow(): View = row(40).apply {
+    /** Symbols 3rd row mirrors the letters' third row: page-cycle on the left
+     *  (where shift is) and backspace on the right — same spot as normal keys. */
+    private fun symbolThirdRow(keys: List<String>): View = row(45).apply {
+        addCell(this, textView("${symbolsPage + 1}/2", colText, 14f).apply {
+            background = keyBg(R.drawable.key_func_bg)
+            setOnClickListener { symbolsPage = (symbolsPage + 1) % 2; renderKeys() }
+        }, 1.5f)
+        keys.forEach { k ->
+            addCell(this, charKey(k, R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
+        }
+        addCell(this, backspaceKey(), 1.5f)
+    }
+
+    private fun numberRow(): View = row(36).apply {
         NUMBERS.forEachIndexed { i, n ->
             addCell(this, charKey(n, R.drawable.key_letter_bg, colText, 16f, gestureEligible = false), 1f)
             if (wide && i == 4) addCenterGap(this)
         }
     }
 
-    private fun letterRow(keys: List<String>, indent: Float, splitAfter: Int): View = row(50).apply {
+    private fun letterRow(keys: List<String>, indent: Float, splitAfter: Int): View = row(45).apply {
         // The half-key indent applies in split mode too — Samsung staggers the
         // home row (a starts ~½ key right of q), so the indent + a matching
         // trailing gap keep every letter key the same width across rows.
@@ -1269,13 +1287,13 @@ class KeyboardView(
 
     private fun addCenterGap(row: LinearLayout) = addCell(row, View(context), CENTER_GAP)
 
-    private fun symbolRow(keys: List<String>): View = row(50).apply {
+    private fun symbolRow(keys: List<String>): View = row(45).apply {
         keys.forEach { k ->
             addCell(this, charKey(k, R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
         }
     }
 
-    private fun thirdRow(middle: List<String>, lettersPage: Boolean): View = row(50).apply {
+    private fun thirdRow(middle: List<String>, lettersPage: Boolean): View = row(45).apply {
         val shift = iconKey(R.drawable.ic_kb_shift, R.drawable.key_func_bg) {
             val now = System.currentTimeMillis()
             when {
@@ -1311,7 +1329,7 @@ class KeyboardView(
         setOnTouchListener { v, e -> handleBackspaceTouch(v, e) }
     }
 
-    private fun bottomRow(): View = row(50).apply {
+    private fun bottomRow(): View = row(45).apply {
         addCell(this, textView("!#1", colText, 14f).apply {
             background = keyBg(R.drawable.key_func_bg)
             setOnClickListener { symbols = true; symbolsPage = 0; renderKeys() }
@@ -1333,19 +1351,15 @@ class KeyboardView(
     /** Symbols pages keep their symbol rows full-width (so the shifted symbols
      *  line up under the numbers), so ABC / page-cycle / backspace / enter live
      *  together down here. */
-    private fun symbolsBottomRow(): View = row(50).apply {
+    private fun symbolsBottomRow(): View = row(45).apply {
         addCell(this, textView("ABC", colText, 14f).apply {
             background = keyBg(R.drawable.key_func_bg)
             setOnClickListener { symbols = false; renderKeys() }
-        }, 1.6f)
-        addCell(this, textView("${symbolsPage + 1}/2", colText, 14f).apply {
-            background = keyBg(R.drawable.key_func_bg)
-            setOnClickListener { symbolsPage = (symbolsPage + 1) % 2; renderKeys() }
-        }, 1.4f)
+        }, 1.5f)
         addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
-        addCell(this, spaceKey(), 3.2f)
+        addCell(this, spaceKey(), 5f)
         addCell(this, charKey(".", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
-        addCell(this, backspaceKey(), 1.5f)
+        // Enter on the far right — same spot as the letters' bottom row.
         addCell(this, iconKey(R.drawable.ic_kb_enter, R.drawable.key_func_bg) { handleEnter() }, 1.5f)
     }
 
@@ -1708,7 +1722,7 @@ class KeyboardView(
         // gap is created by the inset key backgrounds instead, so the row height
         // is bumped to keep the same pitch while the whole row stays touchable.
         isMotionEventSplittingEnabled = true
-        layoutParams = LayoutParams(MATCH, dp(heightDp) + dp(5))
+        layoutParams = LayoutParams(MATCH, dp(heightDp) + dp(4))
     }
 
     /**
@@ -1770,19 +1784,18 @@ class KeyboardView(
         private val ROW2 = listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
         private val ROW3 = listOf("z", "x", "c", "v", "b", "n", "m")
 
-        // Page 1 mirrors a physical US keyboard: the shifted number symbols line
-        // up under the numbers (! under 1 … ) under 0), and - / + sit under ( / ).
+        // Page 1: shifted number symbols line up under the numbers; the 3rd row is
+        // 7 keys so the page-cycle (left) and backspace (right) match the letters.
         private val SYM_PAGE1 = listOf(
             listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
             listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")"),
-            // The common punctuation (? ' ") lives here; - / + stay under ( / ).
-            listOf("~", "=", "/", "\\", ":", "?", "'", "\"", "-", "+"),
+            listOf("-", "+", "=", "/", "'", "\"", "?"),
         )
-        // Page 2: the less-common symbols, currency, and rarer punctuation (; _ `).
+        // Page 2: less-common symbols and currency.
         private val SYM_PAGE2 = listOf(
-            listOf("[", "]", "{", "}", "<", ">", "|", "•", "·", "…"),
-            listOf("£", "€", "¥", "¢", "°", "©", "®", "™", "§", "¶"),
-            listOf("`", "_", ";", "¿", "¡", "×", "÷", "±", "—", "№"),
+            listOf("~", "`", "|", "•", "·", "…", "°", "©", "®", "™"),
+            listOf("£", "€", "¥", "¢", "§", "¶", "÷", "×", "±", "≈"),
+            listOf("\\", ";", ":", "{", "}", "[", "]"),
         )
     }
 }

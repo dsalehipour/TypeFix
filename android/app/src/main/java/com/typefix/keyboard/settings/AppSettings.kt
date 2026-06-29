@@ -37,6 +37,7 @@ class AppSettings private constructor(context: Context) {
         const val VOICE_CLEANUP = "voiceCleanup"
         const val GIF_INTENT = "gifIntent"
         const val TONE_CHECK = "toneCheck"
+        const val AUTOCORRECT_SPACE = "autocorrectOnSpace"
         fun apiKey(provider: Provider) = "apiKey_${provider.id}"
     }
 
@@ -124,6 +125,12 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getBoolean(Keys.TONE_CHECK, false)
         set(value) { prefs.edit().putBoolean(Keys.TONE_CHECK, value).apply(); publish() }
 
+    /** Instantly fix an obvious typo the moment you hit space (offline, no LLM).
+     *  Backspace right after reverts it and that word won't be auto-fixed again. */
+    var autocorrectOnSpace: Boolean
+        get() = prefs.getBoolean(Keys.AUTOCORRECT_SPACE, false)
+        set(value) { prefs.edit().putBoolean(Keys.AUTOCORRECT_SPACE, value).apply(); publish() }
+
     var protectedWords: List<String>
         get() = prefs.getString(Keys.PROTECTED_WORDS, "")
             .orEmpty()
@@ -182,6 +189,7 @@ class AppSettings private constructor(context: Context) {
             voiceCleanupEnabled = voiceCleanupEnabled,
             gifIntentEnabled = gifIntentEnabled,
             toneCheckEnabled = toneCheckEnabled,
+            autocorrectOnSpace = autocorrectOnSpace,
         )
     }
 
@@ -218,4 +226,5 @@ data class SettingsSnapshot(
     val voiceCleanupEnabled: Boolean,
     val gifIntentEnabled: Boolean,
     val toneCheckEnabled: Boolean,
+    val autocorrectOnSpace: Boolean,
 )

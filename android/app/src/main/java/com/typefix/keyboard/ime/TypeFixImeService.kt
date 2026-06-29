@@ -75,6 +75,13 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var toneTarget: String? = null
     private var toneFlag: String? = null
 
+    // Offline autocorrect-on-space: the word we just auto-replaced (with the
+    // original the user typed) so a single backspace can revert it, plus the set
+    // of words the user reverted so we never re-fix them this session.
+    private var pendingAutoFixOriginal: String? = null
+    private var pendingAutoFixApplied: String? = null
+    private val rejectedAutoFix = HashSet<String>()
+
     private var speechRecognizer: SpeechRecognizer? = null
     private var listening = false
 
@@ -135,6 +142,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         isSecureField = info != null && isPasswordField(info)
+        // A new field starts with no revertable autocorrect pending.
+        pendingAutoFixOriginal = null
+        pendingAutoFixApplied = null
         // Always reveal the normal letter keyboard, never the last panel/symbols page.
         keyboard?.resetToLetters()
         captureClipboard()
@@ -187,11 +197,67 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         cancelInFlightFix()
         clearLastFix()
         keyboard?.clearTone()
-        currentInputConnection?.commitText(text, 1)
+        // Offline autocorrect: fix an obvious typo the moment the user hits space.
+        val didAutoFix = text == " " && maybeAutoFixOnSpace()
+        if (!didAutoFix) {
+            // Typing anything else closes the one-backspace revert window.
+            pendingAutoFixOriginal = null
+            pendingAutoFixApplied = null
+            currentInputConnection?.commitText(text, 1)
+        }
         recordWordIfBoundary(text)
         updateSuggestions()
         scheduleAutoCorrection()
         scheduleToneCheck()
+    }
+
+    /** When [AppSettings.autocorrectOnSpace] is on, replace a just-typed typo with
+     *  a confident offline fix and commit the space. Returns true if it fired. */
+    private fun maybeAutoFixOnSpace(): Boolean {
+        if (!settings.snapshot().autocorrectOnSpace || isSecureField) return false
+        val ic = currentInputConnection ?: return false
+        val after = ic.getTextAfterCursor(1, 0)?.toString().orEmpty()
+        if (after.isNotEmpty() && !after[0].isWhitespace()) return false // mid-word, leave it
+        val before = ic.getTextBeforeCursor(48, 0)?.toString().orEmpty()
+        val word = before.takeLastWhile { !it.isWhitespace() }
+        if (word.length < 3 || !word.all { it.isLetter() }) return false
+        if (word.lowercase() in rejectedAutoFix) return false
+        if (settings.snapshot().protectedWords.any { it.equals(word, ignoreCase = true) }) return false
+        val fixLower = GestureDecoder.autoFix(word) ?: return false
+        val fixed = applyCaseLike(word, fixLower)
+        if (fixed == word) return false
+        ic.beginBatchEdit()
+        ic.deleteSurroundingText(word.length, 0)
+        ic.commitText("$fixed ", 1)
+        ic.endBatchEdit()
+        pendingAutoFixOriginal = word
+        pendingAutoFixApplied = fixed
+        return true
+    }
+
+    /** Reverts the pending autocorrect if the user backspaces right after it, and
+     *  remembers not to fix that word again. Returns true if it handled the press. */
+    private fun revertAutoFixIfPending(): Boolean {
+        val applied = pendingAutoFixApplied ?: return false
+        val original = pendingAutoFixOriginal ?: return false
+        pendingAutoFixApplied = null
+        pendingAutoFixOriginal = null
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(applied.length + 1, 0)?.toString().orEmpty()
+        if (before != "$applied ") return false // text changed underneath us
+        ic.beginBatchEdit()
+        ic.deleteSurroundingText(applied.length + 1, 0)
+        ic.commitText(original, 1) // restore what they typed, caret right after it
+        ic.endBatchEdit()
+        rejectedAutoFix.add(original.lowercase())
+        return true
+    }
+
+    /** Carry the original word's capitalization onto the corrected word. */
+    private fun applyCaseLike(original: String, fixedLower: String): String = when {
+        original.length > 1 && original.all { it.isUpperCase() } -> fixedLower.uppercase()
+        original.firstOrNull()?.isUpperCase() == true -> fixedLower.replaceFirstChar { it.uppercase() }
+        else -> fixedLower
     }
 
     /** Live typo-fix/autocomplete chips for the word currently being typed. */
@@ -212,6 +278,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     override fun onSuggestionPicked(word: String) {
         cancelInFlightFix()
+        pendingAutoFixOriginal = null
+        pendingAutoFixApplied = null
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString().orEmpty()
         val partial = before.takeLastWhile { !it.isWhitespace() }
@@ -244,7 +312,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         cancelInFlightFix()
         clearLastFix()
         keyboard?.clearTone()
-        if (!deleteSelectionIfAny()) currentInputConnection?.deleteSurroundingText(1, 0)
+        // A backspace right after an autocorrect reverts the fix instead of deleting.
+        if (!revertAutoFixIfPending()) {
+            if (!deleteSelectionIfAny()) currentInputConnection?.deleteSurroundingText(1, 0)
+        }
         updateSuggestions()
         scheduleAutoCorrection()
         scheduleToneCheck()
@@ -263,6 +334,13 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         cancelInFlightFix()
         clearLastFix()
         backspaceJob?.cancel()
+        // A backspace right after an autocorrect reverts the fix instead of deleting.
+        if (revertAutoFixIfPending()) {
+            updateSuggestions()
+            scheduleAutoCorrection()
+            scheduleToneCheck()
+            return
+        }
         // A highlighted selection is deleted whole on the very first press.
         if (deleteSelectionIfAny()) return
         backspaceJob = scope.launch {
@@ -528,7 +606,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onCursorMove(steps: Int) {
         if (steps == 0) return
         val code = if (steps < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
-        repeat(kotlin.math.abs(steps).coerceAtMost(60)) { sendDownUpKeyEvents(code) }
+        repeat(kotlin.math.abs(steps).coerceAtMost(60)) {
+            sendDownUpKeyEvents(code)
+            Haptics.tick(applicationContext, 5, 70) // a tick per character the cursor moves
+        }
     }
 
     /** The user's own KLIPY key if set, otherwise the bundled one. */

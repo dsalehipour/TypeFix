@@ -69,6 +69,26 @@ object GestureDecoder {
         return out.toList()
     }
 
+    /**
+     * Confident offline autocorrect used the moment the user hits space. Returns a
+     * lowercase replacement only when [word] is NOT already a real word and there's
+     * a close (edit distance 1) common word; otherwise null. Conservative on
+     * purpose (min length 3, must be a non-word with a near match) so it never
+     * "fixes" intentional input that has no obvious correction.
+     */
+    fun autoFix(word: String): String? {
+        val w = word.lowercase().filter { it in 'a'..'z' }
+        if (w.length < 3 || words.isEmpty()) return null
+        if (commonSet.contains(w)) return null
+        var scanned = 0
+        for (cand in words) { // frequency-ordered → first within-1 hit is the most common
+            if (scanned++ > 20000) break
+            if (cand.length < 2 || kotlin.math.abs(cand.length - w.length) > 1) continue
+            if (within1(cand, w)) return cand
+        }
+        return null
+    }
+
     /** Damerau-Levenshtein distance <= 1 (substitution / insert / delete / swap). */
     private fun within1(a: String, b: String): Boolean {
         if (a == b) return true

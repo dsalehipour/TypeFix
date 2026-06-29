@@ -81,7 +81,13 @@ fun SettingsScreen() {
             } else {
                 CloudCard(settings, snapshot.provider, snapshot.model, snapshot.baseUrl, snapshot.apiKey)
             }
-            ModeCard(settings, snapshot.correctionMode, snapshot.autoDelayMs, snapshot.autoMinChars)
+            ModeCard(
+                settings,
+                snapshot.correctionMode,
+                snapshot.autoDelayMs,
+                snapshot.autoMinChars,
+                snapshot.autocorrectOnSpace,
+            )
             FeedbackCard(settings, snapshot.vibrationEnabled)
             SmartFeaturesCard(settings, snapshot)
             GifCard(settings, snapshot.klipyApiKey)
@@ -336,6 +342,7 @@ private fun ModeCard(
     mode: CorrectionMode,
     autoDelayMs: Long,
     autoMinChars: Int,
+    autocorrectOnSpace: Boolean,
 ) {
     SectionCard("When to fix") {
         CorrectionMode.entries.forEach { option ->
@@ -344,6 +351,13 @@ private fun ModeCard(
                 Text(option.displayName, Modifier.padding(start = 4.dp))
             }
         }
+        HorizontalDivider()
+        SmartToggle(
+            title = "Autocorrect on space",
+            caption = "Works offline, no AI. Instantly fixes an obvious typo when you hit space. " +
+                "Backspace right after undoes it, and that word won't be fixed again.",
+            checked = autocorrectOnSpace,
+        ) { settings.autocorrectOnSpace = it }
         if (mode == CorrectionMode.AUTO) {
             HorizontalDivider()
             Text("Fix after pausing: $autoDelayMs ms", style = MaterialTheme.typography.bodyMedium)
