@@ -321,7 +321,7 @@ class KeyboardView(
         }
         addView(contentContainer, LayoutParams(MATCH, WRAP))
 
-        addView(buildBottomSystemBar(), LayoutParams(MATCH, dp(32)))
+        addView(buildBottomSystemBar(), LayoutParams(MATCH, dp(42)))
 
         renderKeys()
         showKeyboard()
@@ -1722,7 +1722,9 @@ class KeyboardView(
         // gap is created by the inset key backgrounds instead, so the row height
         // is bumped to keep the same pitch while the whole row stays touchable.
         isMotionEventSplittingEnabled = true
-        layoutParams = LayoutParams(MATCH, dp(heightDp) + dp(4))
+        // The extra height (beyond the key) plus keyBg's vertical inset sets the
+        // gap between rows; tuned so keys stay the same height but rows breathe.
+        layoutParams = LayoutParams(MATCH, dp(heightDp) + dp(6))
     }
 
     /**
@@ -1739,7 +1741,7 @@ class KeyboardView(
      *  mode uses a wider horizontal gap to match the Samsung keyboard. */
     private fun keyBg(res: Int): InsetDrawable {
         val h = if (wide) dp(6) else dp(2)
-        return InsetDrawable(drawable(res), h, dp(2), h, dp(2))
+        return InsetDrawable(drawable(res), h, dp(3), h, dp(3))
     }
 
     private fun currentCase(key: String) = if (shifted && !symbols) key.uppercase() else key

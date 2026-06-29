@@ -79,7 +79,13 @@ object GestureDecoder {
     fun autoFix(word: String): String? {
         val w = word.lowercase().filter { it in 'a'..'z' }
         if (w.length < 3 || words.isEmpty()) return null
-        if (commonSet.contains(w)) return null
+        // A stray digit/symbol inside a word (e.g. "hav3", "hello2") is a typo too.
+        val hadStrayChars = w.length != word.length
+        if (commonSet.contains(w)) {
+            // Already a real word once cleaned: only "fix" it if we dropped stray
+            // characters; an all-letters real word needs no correction.
+            return if (hadStrayChars) w else null
+        }
         var scanned = 0
         for (cand in words) { // frequency-ordered → first within-1 hit is the most common
             if (scanned++ > 20000) break

@@ -220,7 +220,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         if (after.isNotEmpty() && !after[0].isWhitespace()) return false // mid-word, leave it
         val before = ic.getTextBeforeCursor(48, 0)?.toString().orEmpty()
         val word = before.takeLastWhile { !it.isWhitespace() }
-        if (word.length < 3 || !word.all { it.isLetter() }) return false
+        // Letters, or letters with a stray digit ("hav3") — but never pure numbers
+        // or anything with punctuation.
+        if (word.length < 3 || !word.all { it.isLetterOrDigit() } || word.none { it.isLetter() }) return false
         if (word.lowercase() in rejectedAutoFix) return false
         if (settings.snapshot().protectedWords.any { it.equals(word, ignoreCase = true) }) return false
         val fixLower = GestureDecoder.autoFix(word) ?: return false
@@ -253,11 +255,15 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         return true
     }
 
-    /** Carry the original word's capitalization onto the corrected word. */
-    private fun applyCaseLike(original: String, fixedLower: String): String = when {
-        original.length > 1 && original.all { it.isUpperCase() } -> fixedLower.uppercase()
-        original.firstOrNull()?.isUpperCase() == true -> fixedLower.replaceFirstChar { it.uppercase() }
-        else -> fixedLower
+    /** Carry the original word's capitalization onto the corrected word (looking at
+     *  letters only, so a stray digit doesn't throw off ALL-CAPS detection). */
+    private fun applyCaseLike(original: String, fixedLower: String): String {
+        val letters = original.filter { it.isLetter() }
+        return when {
+            letters.length > 1 && letters.all { it.isUpperCase() } -> fixedLower.uppercase()
+            letters.firstOrNull()?.isUpperCase() == true -> fixedLower.replaceFirstChar { it.uppercase() }
+            else -> fixedLower
+        }
     }
 
     /** Live typo-fix/autocomplete chips for the word currently being typed. */
