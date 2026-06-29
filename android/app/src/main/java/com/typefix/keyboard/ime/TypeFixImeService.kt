@@ -90,6 +90,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var listening = false
+    // The user's intent to keep dictating: stays true across the automatic
+    // session restarts that let them talk for as long as they want, until they
+    // tap the mic again.
+    private var wantListening = false
 
     // The most recent fix, kept so the action-bar Undo can revert it.
     private var lastOriginal: String? = null
@@ -209,6 +213,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         autoJob?.cancel()
         backspaceJob?.cancel()
         toneJob?.cancel()
+        if (wantListening) stopListening()
         cancelInFlightFix()
         keyboard?.cancelAutoCountdown()
     }
@@ -217,6 +222,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         autoJob?.cancel()
         backspaceJob?.cancel()
         toneJob?.cancel()
+        wantListening = false
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         stopAllHaptics()
         speechRecognizer?.destroy()
@@ -754,32 +760,44 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             keyboard?.flash("Allow the mic, then tap again", orange)
             return
         }
-        if (listening) { stopListening(); return }
+        if (wantListening) { stopListening(); return }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             keyboard?.flash("Speech recognition unavailable", orange)
             return
         }
-        startListening()
+        wantListening = true
+        startListeningSession()
     }
 
-    private fun startListening() {
+    /** One recognition session. While [wantListening] is true we transparently
+     *  restart after each result/silence so the user can dictate indefinitely. */
+    private fun startListeningSession() {
         val recognizer = speechRecognizer
             ?: SpeechRecognizer.createSpeechRecognizer(this).also { speechRecognizer = it }
         recognizer.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { keyboard?.setStatus("Listening…", red) }
+            override fun onReadyForSpeech(params: Bundle?) { keyboard?.setStatus("Listening… tap mic to stop", red) }
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() { keyboard?.setStatus("Transcribing…", red) }
+            override fun onEndOfSpeech() {}
             override fun onError(error: Int) {
                 listening = false
-                keyboard?.flash("Didn't catch that", orange)
+                when {
+                    !wantListening -> {}
+                    // Permission / fatal: stop and tell the user.
+                    error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                        wantListening = false
+                        keyboard?.flash("Mic permission needed", orange)
+                    }
+                    // No speech / timeout / busy → just listen again (keeps it alive).
+                    else -> restartListeningSoon()
+                }
             }
             override fun onResults(results: Bundle?) {
                 listening = false
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 if (text.isNullOrBlank()) {
-                    keyboard?.flash("Nothing heard", orange)
+                    if (wantListening) restartListeningSoon() else keyboard?.flash("Nothing heard", orange)
                     return
                 }
                 clearLastFix()
@@ -788,11 +806,12 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
                     scope.launch {
                         val cleaned = Corrector.cleanupVoice(applicationContext, text, settings.snapshot()) ?: text
                         currentInputConnection?.commitText("$cleaned ", 1)
-                        keyboard?.flash("Inserted", green)
+                        // Restart only after committing, so chunks stay in order.
+                        if (wantListening) startListeningSession() else keyboard?.flash("Done", green)
                     }
                 } else {
                     currentInputConnection?.commitText("$text ", 1)
-                    keyboard?.flash("Inserted", green)
+                    if (wantListening) restartListeningSoon() else keyboard?.flash("Done", green)
                 }
             }
             override fun onPartialResults(partialResults: Bundle?) {}
@@ -802,14 +821,29 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // Don't end the session on a short pause (best-effort; OEM-dependent).
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 6000L)
         }
         listening = true
         recognizer.startListening(intent)
     }
 
+    private fun restartListeningSoon() {
+        if (!wantListening) return
+        // A small gap avoids ERROR_RECOGNIZER_BUSY when reusing the recognizer.
+        scope.launch {
+            delay(180)
+            if (wantListening) startListeningSession()
+        }
+    }
+
     private fun stopListening() {
+        wantListening = false
         listening = false
-        speechRecognizer?.stopListening()
+        runCatching { speechRecognizer?.cancel() }
+        keyboard?.flash("Stopped", gray)
     }
 
     // ---- Correction ----

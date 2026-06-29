@@ -1256,6 +1256,9 @@ class KeyboardView(
 
     private fun renderSymbols() {
         val rows = if (symbolsPage == 0) SYM_PAGE1 else SYM_PAGE2
+        // Identical layout to the letters (number row + 2 rows + cycle/backspace
+        // row + bottom row); only the key content differs between pages.
+        keyRows.addView(numberRow())
         keyRows.addView(symbolRow(rows[0]))
         keyRows.addView(symbolRow(rows[1]))
         keyRows.addView(symbolThirdRow(rows[2]))
@@ -1263,14 +1266,16 @@ class KeyboardView(
     }
 
     /** Symbols 3rd row mirrors the letters' third row: page-cycle on the left
-     *  (where shift is) and backspace on the right — same spot as normal keys. */
+     *  (where shift is), 7 symbols, backspace on the right — and the same center
+     *  split in wide mode. */
     private fun symbolThirdRow(keys: List<String>): View = row(45).apply {
         addCell(this, textView("${symbolsPage + 1}/2", colText, 14f).apply {
             background = keyBg(R.drawable.key_func_bg)
             setOnClickListener { symbolsPage = (symbolsPage + 1) % 2; renderKeys() }
         }, 1.5f)
-        keys.forEach { k ->
+        keys.forEachIndexed { i, k ->
             addCell(this, charKey(k, R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
+            if (wide && i == 3) addCenterGap(this)
         }
         addCell(this, backspaceKey(), 1.5f)
     }
@@ -1300,8 +1305,9 @@ class KeyboardView(
     private fun addCenterGap(row: LinearLayout) = addCell(row, View(context), CENTER_GAP)
 
     private fun symbolRow(keys: List<String>): View = row(45).apply {
-        keys.forEach { k ->
+        keys.forEachIndexed { i, k ->
             addCell(this, charKey(k, R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
+            if (wide && i == 4) addCenterGap(this)
         }
     }
 
@@ -1360,18 +1366,22 @@ class KeyboardView(
         addCell(this, iconKey(R.drawable.ic_kb_enter, R.drawable.key_func_bg) { handleEnter() }, 1.5f)
     }
 
-    /** Symbols pages keep their symbol rows full-width (so the shifted symbols
-     *  line up under the numbers), so ABC / page-cycle / backspace / enter live
-     *  together down here. */
+    /** Identical to the letters' bottom row (incl. the wide split spacebar), with
+     *  ABC in place of the symbols toggle. */
     private fun symbolsBottomRow(): View = row(45).apply {
         addCell(this, textView("ABC", colText, 14f).apply {
             background = keyBg(R.drawable.key_func_bg)
             setOnClickListener { symbols = false; renderKeys() }
         }, 1.5f)
         addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
-        addCell(this, spaceKey(), 5f)
+        if (wide) {
+            addCell(this, spaceKey(), 2.5f)
+            addCenterGap(this)
+            addCell(this, spaceKey(), 2.5f)
+        } else {
+            addCell(this, spaceKey(), 5f)
+        }
         addCell(this, charKey(".", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
-        // Enter on the far right — same spot as the letters' bottom row.
         addCell(this, iconKey(R.drawable.ic_kb_enter, R.drawable.key_func_bg) { handleEnter() }, 1.5f)
     }
 
@@ -1829,18 +1839,19 @@ class KeyboardView(
         private val ROW2 = listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
         private val ROW3 = listOf("z", "x", "c", "v", "b", "n", "m")
 
-        // Page 1: shifted number symbols line up under the numbers; the 3rd row is
-        // 7 keys so the page-cycle (left) and backspace (right) match the letters.
+        // Symbols mirror the Samsung keyboard: same key layout as the letters
+        // (number row + two rows + a cycle/backspace row), only the content
+        // changes between the two pages. Each page is [row1(10), row2(10), row3(7)];
+        // the shared number row (1-0) is added separately.
         private val SYM_PAGE1 = listOf(
-            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
+            listOf("+", "×", "÷", "=", "/", "_", "<", ">", "[", "]"),
             listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")"),
-            listOf("-", "+", "=", "/", "'", "\"", "?"),
+            listOf("-", "'", "\"", ":", ";", ",", "?"),
         )
-        // Page 2: less-common symbols and currency.
         private val SYM_PAGE2 = listOf(
-            listOf("~", "`", "|", "•", "·", "…", "°", "©", "®", "™"),
-            listOf("£", "€", "¥", "¢", "§", "¶", "÷", "×", "±", "≈"),
-            listOf("\\", ";", ":", "{", "}", "[", "]"),
+            listOf("`", "~", "\\", "|", "{", "}", "€", "£", "¥", "₩"),
+            listOf("°", "•", "○", "●", "□", "■", "♤", "♡", "◇", "♧"),
+            listOf("★", "▪", "¤", "《", "》", "¡", "¿"),
         )
     }
 }
