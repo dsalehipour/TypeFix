@@ -22,6 +22,11 @@ object GestureDecoder {
     private var words: List<String> = emptyList()
     @Volatile
     private var commonSet: Set<String> = emptySet()
+    // A large curated dictionary used ONLY to decide "is this typed word a real
+    // word (so autocorrect should leave it alone)?". Loaded lazily the first time
+    // autocorrect runs, because it's ~370k words (autocorrect is off by default).
+    @Volatile
+    private var validSet: Set<String> = emptySet()
 
     fun ensureLoaded(context: Context) {
         if (words.isNotEmpty()) return
@@ -33,6 +38,18 @@ object GestureDecoder {
                 }
             }.getOrDefault(emptyList())
             commonSet = words.toHashSet()
+        }
+    }
+
+    fun ensureValidLoaded(context: Context) {
+        if (validSet.isNotEmpty()) return
+        synchronized(this) {
+            if (validSet.isNotEmpty()) return
+            validSet = runCatching {
+                context.applicationContext.assets.open("words_valid.txt").bufferedReader().useLines { seq ->
+                    seq.map { it.trim() }.filter { it.isNotEmpty() }.toHashSet()
+                }
+            }.getOrDefault(emptySet())
         }
     }
 
@@ -76,14 +93,16 @@ object GestureDecoder {
      * purpose (min length 3, must be a non-word with a near match) so it never
      * "fixes" intentional input that has no obvious correction.
      */
-    fun autoFix(word: String): String? {
+    fun autoFix(context: Context, word: String): String? {
+        ensureLoaded(context)
+        ensureValidLoaded(context)
         val w = word.lowercase().filter { it in 'a'..'z' }
         if (w.length < 3 || words.isEmpty()) return null
         // A stray digit/symbol inside a word (e.g. "hav3", "hello2") is a typo too.
         val hadStrayChars = w.length != word.length
-        if (commonSet.contains(w)) {
-            // Already a real word once cleaned: only "fix" it if we dropped stray
-            // characters; an all-letters real word needs no correction.
+        // A genuine word (per the big dictionary or the common list) is never a
+        // typo — this is what stops "heck" being "corrected" to "check".
+        if (validSet.contains(w) || commonSet.contains(w)) {
             return if (hadStrayChars) w else null
         }
         var scanned = 0

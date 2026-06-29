@@ -744,6 +744,16 @@ class KeyboardView(
         renderKeys()
     }
 
+    /** Auto-capitalization: the IME sets the one-shot shift based on the caret
+     *  context (start of text / after sentence punctuation). Ignored while caps
+     *  lock is on, symbols are showing, or a panel/search is open. */
+    fun setAutoShift(on: Boolean) {
+        if (capsLock || symbols || searchMode != SearchMode.NONE || activePanel != "keyboard") return
+        if (shifted == on) return
+        shifted = on
+        applyShiftCase()
+    }
+
     private fun showKeyboard() {
         listener.onContentPanelChanged()
         clearSuggestions()
