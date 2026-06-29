@@ -18,6 +18,39 @@ import android.content.Context
  */
 object GestureDecoder {
 
+    /**
+     * High-confidence corrections applied on space even though some appear in the
+     * broad dictionary: contraction stubs (which also need an apostrophe the fuzzy
+     * matcher can't add) and very common misspellings. Deliberately excludes
+     * ambiguous homographs (its, well, ill, id, were, wed, shell, hell).
+     */
+    private val COMMON_FIXES: Map<String, String> = mapOf(
+        // contraction stubs
+        "im" to "I'm", "ive" to "I've", "youre" to "you're", "youve" to "you've",
+        "youll" to "you'll", "youd" to "you'd", "hes" to "he's", "shes" to "she's",
+        "theyre" to "they're", "theyve" to "they've", "theyll" to "they'll",
+        "theyd" to "they'd", "weve" to "we've",
+        "thats" to "that's", "whats" to "what's", "wheres" to "where's",
+        "hows" to "how's", "whos" to "who's", "theres" to "there's",
+        "heres" to "here's", "dont" to "don't", "doesnt" to "doesn't",
+        "didnt" to "didn't", "isnt" to "isn't", "arent" to "aren't",
+        "wasnt" to "wasn't", "werent" to "weren't", "hasnt" to "hasn't",
+        "havent" to "haven't", "hadnt" to "hadn't", "wont" to "won't",
+        "cant" to "can't", "couldnt" to "couldn't", "wouldnt" to "wouldn't",
+        "shouldnt" to "shouldn't", "mustnt" to "mustn't", "neednt" to "needn't",
+        "wouldve" to "would've", "couldve" to "could've", "shouldve" to "should've",
+        "mightve" to "might've", "aint" to "ain't",
+        // frequent misspellings
+        "hav" to "have", "teh" to "the", "alot" to "a lot", "recieve" to "receive",
+        "definately" to "definitely", "seperate" to "separate", "untill" to "until",
+        "occured" to "occurred", "becuase" to "because", "becasue" to "because",
+        "wich" to "which", "thier" to "their", "freind" to "friend",
+        "beleive" to "believe", "wierd" to "weird", "accross" to "across",
+        "agian" to "again", "tommorow" to "tomorrow", "tommorrow" to "tomorrow",
+        "goverment" to "government", "enviroment" to "environment",
+        "wanna" to "wanna", "gonna" to "gonna",
+    )
+
     @Volatile
     private var words: List<String> = emptyList()
     @Volatile
@@ -97,7 +130,12 @@ object GestureDecoder {
         ensureLoaded(context)
         ensureValidLoaded(context)
         val w = word.lowercase().filter { it in 'a'..'z' }
-        if (w.length < 3 || words.isEmpty()) return null
+        if (w.length < 2 || words.isEmpty()) return null
+        // Forced fixes (contraction stubs + frequent typos) win over the dictionary,
+        // since the broad dictionary lists informal stubs like "hav"/"dont"/"wont"
+        // as words and can't insert the apostrophe these need.
+        COMMON_FIXES[w]?.let { return it }
+        if (w.length < 3) return null
         // A stray digit/symbol inside a word (e.g. "hav3", "hello2") is a typo too.
         val hadStrayChars = w.length != word.length
         // A genuine word (per the big dictionary or the common list) is never a

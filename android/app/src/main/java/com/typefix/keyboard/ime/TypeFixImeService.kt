@@ -253,8 +253,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         val before = ic.getTextBeforeCursor(48, 0)?.toString().orEmpty()
         val word = before.takeLastWhile { !it.isWhitespace() }
         // Letters, or letters with a stray digit ("hav3") — but never pure numbers
-        // or anything with punctuation.
-        if (word.length < 3 || !word.all { it.isLetterOrDigit() } || word.none { it.isLetter() }) return false
+        // or anything with punctuation. (autoFix itself gates short words: only the
+        // explicit fix map applies below 3 letters, e.g. "im".)
+        if (word.length < 2 || !word.all { it.isLetterOrDigit() } || word.none { it.isLetter() }) return false
         if (word.lowercase() in rejectedAutoFix) return false
         if (settings.snapshot().protectedWords.any { it.equals(word, ignoreCase = true) }) return false
         val fixLower = GestureDecoder.autoFix(applicationContext, word) ?: return false
