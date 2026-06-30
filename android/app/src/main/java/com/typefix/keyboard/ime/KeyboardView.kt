@@ -1535,6 +1535,20 @@ class KeyboardView(
             shifted = false
             applyShiftCase()
         }
+        returnToLettersAfterApostrophe(baseChar)
+    }
+
+    /**
+     * Typing a single quote/apostrophe from the symbols layout flips back to the
+     * letter keyboard, because the next character (e.g. "don't", "I'm") is almost
+     * always a letter — so the common case needs zero extra taps.
+     */
+    private fun returnToLettersAfterApostrophe(baseChar: String) {
+        if (symbols && baseChar == "'") {
+            symbols = false
+            symbolsPage = 0
+            renderKeys()
+        }
     }
 
     /** Very light tick on every press anywhere on the keyboard (keys, toolbar,
@@ -1717,6 +1731,7 @@ class KeyboardView(
                     if (shifted && !capsLock && baseChar.length == 1 && baseChar[0] in 'a'..'z') {
                         shifted = false; applyShiftCase()
                     }
+                    returnToLettersAfterApostrophe(baseChar)
                     alternatesPopup?.dismiss()
                 }
             }, LinearLayout.LayoutParams(dp(40), dp(46)).apply { marginStart = dp(2); marginEnd = dp(2) })
