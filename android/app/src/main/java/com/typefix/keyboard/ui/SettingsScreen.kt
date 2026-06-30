@@ -386,14 +386,16 @@ private fun ModeCard(
 private fun SmartFeaturesCard(settings: AppSettings, snapshot: SettingsSnapshot) {
     SectionCard("Smart features (beta)") {
         Text(
-            "All off by default. The ones marked \"Requires an AI model\" need an " +
-                "on-device model or a cloud key (set above); the rest work offline.",
+            "The ones marked \"Requires an AI model\" need an on-device model or a " +
+                "cloud key (set above); the rest work offline.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SmartToggle(
             title = "Phrase memory",
-            caption = "Works offline. Learns your niche words (company names, acronyms, products) and stops \"fixing\" them.",
+            caption = "Works offline. When autocorrect changes a word, you backspace to " +
+                "revert it, and you keep that word — do that 3 times and it's learned, " +
+                "then never auto-corrected or changed by the AI again.",
             checked = snapshot.phraseMemoryEnabled,
         ) { settings.phraseMemoryEnabled = it }
         SmartToggle(

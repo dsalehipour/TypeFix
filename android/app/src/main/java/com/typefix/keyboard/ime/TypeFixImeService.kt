@@ -87,6 +87,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var autoFixAnchor = -1
     private var lastSelEnd = 0
     private var selectionKnown = false
+    // Phrase memory: a word the user just reverted an autocorrect on. If they keep
+    // it (move past it with a space), that's one "kept revert" toward learning it.
+    private var pendingKeepWord: String? = null
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var listening = false
@@ -154,6 +157,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         isSecureField = info != null && isPasswordField(info)
         // A new field starts with no revertable autocorrect pending.
         clearPendingAutoFix()
+        pendingKeepWord = null
         val selEnd = info?.initialSelEnd ?: -1
         selectionKnown = selEnd >= 0
         lastSelEnd = if (selEnd >= 0) selEnd else 0
@@ -204,7 +208,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         lastSelEnd = newSelEnd
         // A real (multi-character) selection means the user is selecting text — drop
         // any pending autocorrect revert so we don't fire it in the wrong place.
-        if (newSelStart != newSelEnd) clearPendingAutoFix()
+        if (newSelStart != newSelEnd) {
+            clearPendingAutoFix()
+            pendingKeepWord = null
+        }
         refreshAutoCaps()
     }
 
@@ -242,7 +249,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         // typing and later backspace all the way back to revert it.
         val didAutoFix = text == " " && maybeAutoFixOnSpace()
         if (!didAutoFix) currentInputConnection?.commitText(text, 1)
-        recordWordIfBoundary(text)
+        maybeConfirmKeptRevert(text)
         updateSuggestions()
         refreshAutoCaps()
         scheduleAutoCorrection()
@@ -264,6 +271,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         if (word.isEmpty() || !word.all { it.isLetterOrDigit() } || word.none { it.isLetter() }) return false
         if (word.lowercase() in rejectedAutoFix) return false
         if (settings.snapshot().protectedWords.any { it.equals(word, ignoreCase = true) }) return false
+        // A word phrase memory has learned (reverted & kept 3x) is never re-fixed.
+        if (settings.snapshot().phraseMemoryEnabled &&
+            PhraseMemory.isLearned(applicationContext, word)
+        ) return false
         val fixLower = GestureDecoder.autoFix(applicationContext, word) ?: return false
         val fixed = applyCaseLike(word, fixLower)
         if (fixed == word) return false
@@ -298,6 +309,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         ic.commitText(original, 1) // restore what they typed, caret right after it
         ic.endBatchEdit()
         rejectedAutoFix.add(original.lowercase())
+        // If the user now keeps this word, it counts toward phrase-memory learning.
+        if (settings.snapshot().phraseMemoryEnabled) pendingKeepWord = original
         return true
     }
 
@@ -369,6 +382,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     override fun onSuggestionPicked(word: String) {
         cancelInFlightFix()
         clearPendingAutoFix()
+        pendingKeepWord = null
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString().orEmpty()
         val partial = before.takeLastWhile { !it.isWhitespace() }
@@ -377,25 +391,32 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         ic.commitText("$word ", 1)
         ic.endBatchEdit()
         keyboard?.setSuggestions(emptyList())
-        recordWordIfBoundary(" ")
         refreshAutoCaps()
         scheduleAutoCorrection()
         scheduleToneCheck()
     }
 
-    /** Feeds completed words to phrase memory so niche vocabulary gets learned. */
-    private fun recordWordIfBoundary(committed: String) {
-        if (!settings.snapshot().phraseMemoryEnabled) return
+    /** Phrase memory learns a word once the user reverts its autocorrect and keeps
+     *  it [PhraseMemory.THRESHOLD] times. This confirms the "keep": after a revert
+     *  set [pendingKeepWord], a space/punctuation that follows the still-intact word
+     *  counts it; editing or deleting the word cancels the pending keep. */
+    private fun maybeConfirmKeptRevert(committed: String) {
+        val word = pendingKeepWord ?: return
         val c = committed.lastOrNull() ?: return
-        if (!(c.isWhitespace() || c in ".,!?;:")) return
-        val before = currentInputConnection?.getTextBeforeCursor(64, 0)?.toString() ?: return
-        var end = before.length
-        while (end > 0 && (before[end - 1].isWhitespace() || before[end - 1] in ".,!?;:\"')(")) end--
-        if (end == 0) return
-        var start = end
-        while (start > 0 && !before[start - 1].isWhitespace()) start--
-        val word = before.substring(start, end)
-        if (word.isNotEmpty()) PhraseMemory.record(applicationContext, word)
+        if (c.isWhitespace() || c in ".,!?;:") {
+            pendingKeepWord = null
+            if (!settings.snapshot().phraseMemoryEnabled) return
+            // Confirm the reverted word is still sitting right before this boundary.
+            val before = currentInputConnection?.getTextBeforeCursor(word.length + 6, 0)?.toString().orEmpty()
+            val trimmed = before.dropLastWhile { it.isWhitespace() || it in ".,!?;:" }
+            val tail = trimmed.takeLastWhile { !it.isWhitespace() }
+            if (tail.equals(word, ignoreCase = true)) {
+                PhraseMemory.recordKeptRevert(applicationContext, word)
+            }
+        } else if (c.isLetterOrDigit() || c == '\'') {
+            // They're extending/altering the word — no longer a clean keep.
+            pendingKeepWord = null
+        }
     }
 
     override fun onBackspace() {
@@ -404,6 +425,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         keyboard?.clearTone()
         // A backspace right after an autocorrect reverts the fix instead of deleting.
         if (!revertAutoFixIfPending()) {
+            pendingKeepWord = null // a real delete cancels a pending phrase-memory keep
             if (!deleteSelectionIfAny()) currentInputConnection?.deleteSurroundingText(1, 0)
         }
         updateSuggestions()
@@ -433,6 +455,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             scheduleToneCheck()
             return
         }
+        pendingKeepWord = null // a real delete cancels a pending phrase-memory keep
         // A highlighted selection is deleted whole on the very first press.
         if (deleteSelectionIfAny()) return
         backspaceJob = scope.launch {

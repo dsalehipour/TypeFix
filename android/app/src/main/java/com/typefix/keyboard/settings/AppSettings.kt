@@ -92,7 +92,7 @@ class AppSettings private constructor(context: Context) {
         set(value) { prefs.edit().putBoolean(Keys.SPELL_CHECK, value).apply(); publish() }
 
     var autoFixResidualTypos: Boolean
-        get() = prefs.getBoolean(Keys.AUTO_FIX_RESIDUAL, false)
+        get() = prefs.getBoolean(Keys.AUTO_FIX_RESIDUAL, true)
         set(value) { prefs.edit().putBoolean(Keys.AUTO_FIX_RESIDUAL, value).apply(); publish() }
 
     /** Haptic feedback while fixing / holding the sparkle. On by default. */
@@ -110,14 +110,14 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getBoolean(Keys.PHRASE_MEMORY, false)
         set(value) { prefs.edit().putBoolean(Keys.PHRASE_MEMORY, value).apply(); publish() }
 
-    /** Rewrite rambling voice transcripts into a concise message. Off by default. */
+    /** Rewrite rambling voice transcripts into a concise message. On by default. */
     var voiceCleanupEnabled: Boolean
-        get() = prefs.getBoolean(Keys.VOICE_CLEANUP, false)
+        get() = prefs.getBoolean(Keys.VOICE_CLEANUP, true)
         set(value) { prefs.edit().putBoolean(Keys.VOICE_CLEANUP, value).apply(); publish() }
 
-    /** Seed GIF results from the message's emotional intent. Off by default. */
+    /** Seed GIF results from the message's emotional intent. On by default. */
     var gifIntentEnabled: Boolean
-        get() = prefs.getBoolean(Keys.GIF_INTENT, false)
+        get() = prefs.getBoolean(Keys.GIF_INTENT, true)
         set(value) { prefs.edit().putBoolean(Keys.GIF_INTENT, value).apply(); publish() }
 
     /** Flag a draft's tone (defensive, cold, too long…) before you send. Off by default. */
@@ -126,9 +126,10 @@ class AppSettings private constructor(context: Context) {
         set(value) { prefs.edit().putBoolean(Keys.TONE_CHECK, value).apply(); publish() }
 
     /** Instantly fix an obvious typo the moment you hit space (offline, no LLM).
-     *  Backspace right after reverts it and that word won't be auto-fixed again. */
+     *  Backspace right after reverts it and that word won't be auto-fixed again.
+     *  On by default. */
     var autocorrectOnSpace: Boolean
-        get() = prefs.getBoolean(Keys.AUTOCORRECT_SPACE, false)
+        get() = prefs.getBoolean(Keys.AUTOCORRECT_SPACE, true)
         set(value) { prefs.edit().putBoolean(Keys.AUTOCORRECT_SPACE, value).apply(); publish() }
 
     var protectedWords: List<String>
