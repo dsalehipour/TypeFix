@@ -445,6 +445,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
                 val ic = currentInputConnection ?: break
                 if (ic.getTextBeforeCursor(1, 0).isNullOrEmpty()) break
                 ic.deleteSurroundingText(1, 0)
+                Haptics.tick(applicationContext, 5, 45) // a tick per character erased while held
                 delay(interval)
                 interval = (interval - 8).coerceAtLeast(34) // accelerate
             }

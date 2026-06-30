@@ -1548,7 +1548,7 @@ class KeyboardView(
         return super.dispatchTouchEvent(ev)
     }
 
-    private fun keyHaptic() = Haptics.tick(context, 5, 60)
+    private fun keyHaptic() = Haptics.tick(context, 5, 70)
 
     /** Celebratory buzz when an emoji/GIF is chosen. */
     private fun pickHaptic() = Haptics.pick(context)
