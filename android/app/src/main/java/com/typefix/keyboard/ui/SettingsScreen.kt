@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.typefix.keyboard.ime.PhraseMemory
 import com.typefix.keyboard.inference.InferenceController
 import com.typefix.keyboard.inference.ModelDownloads
 import com.typefix.keyboard.inference.ModelManager
@@ -93,6 +94,7 @@ fun SettingsScreen() {
             GifCard(settings, snapshot.klipyApiKey)
             GuardrailCard(settings, snapshot.spellCheckAfterCorrection, snapshot.autoFixResidualTypos)
             ProtectedWordsCard(settings, snapshot.protectedWords)
+            if (snapshot.phraseMemoryEnabled) PhraseMemoryCard(context)
             Text(
                 "TypeFix v${com.typefix.keyboard.BuildConfig.VERSION_NAME} (${com.typefix.keyboard.BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.bodySmall,
@@ -488,6 +490,41 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
     ) {
         Text(label, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun PhraseMemoryCard(context: Context) {
+    var words by remember { mutableStateOf(PhraseMemory.learned(context).sorted()) }
+    SectionCard("Learned words (phrase memory)") {
+        Text(
+            "Words TypeFix learned because you reverted their autocorrect and kept " +
+                "them 3 times. These are never auto-corrected or changed by the AI. " +
+                "Remove any that slipped in.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (words.isEmpty()) {
+            Text(
+                "Nothing learned yet — revert an autocorrect (backspace right after it " +
+                    "fixes a word) and keep that word a few times.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        } else {
+            words.forEach { word ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(word, Modifier.weight(1f))
+                    IconButton(onClick = {
+                        PhraseMemory.forget(context, word)
+                        words = PhraseMemory.learned(context).sorted()
+                    }) { Icon(Icons.Default.Close, contentDescription = "Forget") }
+                }
+            }
+            TextButton(onClick = {
+                PhraseMemory.clear(context)
+                words = PhraseMemory.learned(context).sorted()
+            }) { Text("Forget all") }
+        }
     }
 }
 
