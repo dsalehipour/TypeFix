@@ -64,6 +64,10 @@ interface KeyboardListener {
     fun onContentPanelChanged()
     /** A suggestion/typo-fix chip was tapped — replace the current word with it. */
     fun onSuggestionPicked(word: String)
+    /** The clipboard paste chip was tapped — paste [text] at the caret. */
+    fun onClipboardPaste(text: String)
+    /** The clipboard paste chip was dismissed (the ✕) — hide it until next copy. */
+    fun onClipboardSuggestionDismissed()
 }
 
 /**
@@ -85,6 +89,9 @@ class KeyboardView(
     private val suggestionRow: LinearLayout
     private var lastSuggestions: List<String> = emptyList()
     private var suggestionsCollapsed = false
+    // A "tap to paste" preview of the most recent clipboard text, shown in the
+    // action bar while the field is still empty. Null = nothing to offer.
+    private var clipSuggestion: String? = null
     private val statusRow: LinearLayout
     private val statusLabel: TextView
     private val undoButton: TextView
@@ -476,20 +483,66 @@ class KeyboardView(
         }
     }
 
-    /** Status > suggestion chips > icons. */
+    /** Status > suggestion chips > clipboard paste > icons. */
     private fun refreshActionBar() {
         if (statusRow.visibility == VISIBLE) {
             suggestionRow.visibility = GONE
             return
         }
-        if (lastSuggestions.isNotEmpty() && !suggestionsCollapsed) {
-            renderSuggestionChips(lastSuggestions)
-            suggestionRow.visibility = VISIBLE
-            toolbarIcons.visibility = INVISIBLE
-        } else {
-            suggestionRow.visibility = GONE
-            toolbarIcons.visibility = VISIBLE
+        val clip = clipSuggestion
+        when {
+            lastSuggestions.isNotEmpty() && !suggestionsCollapsed -> {
+                renderSuggestionChips(lastSuggestions)
+                suggestionRow.visibility = VISIBLE
+                toolbarIcons.visibility = INVISIBLE
+            }
+            clip != null && activePanel == "keyboard" -> {
+                renderClipSuggestion(clip)
+                suggestionRow.visibility = VISIBLE
+                toolbarIcons.visibility = INVISIBLE
+            }
+            else -> {
+                suggestionRow.visibility = GONE
+                toolbarIcons.visibility = VISIBLE
+            }
         }
+    }
+
+    /**
+     * Offers (or clears) a one-tap "paste your last copy" chip in the action bar.
+     * The IME decides when to call this (only while the field is empty), so the
+     * view just reflects the latest value.
+     */
+    fun setClipboardSuggestion(text: String?) {
+        if (clipSuggestion == text) return
+        clipSuggestion = text
+        if (statusRow.visibility != VISIBLE) refreshActionBar()
+    }
+
+    private fun renderClipSuggestion(clip: String) {
+        suggestionRow.removeAllViews()
+        // The clipboard glyph + a single-line preview; tapping anywhere here pastes.
+        suggestionRow.addView(TextView(context).apply {
+            text = "\uD83D\uDCCB  $clip"
+            isAllCaps = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), 0, dp(8), 0)
+            setTextColor(colText)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            background = drawable(R.drawable.key_flat_bg)
+            setOnClickListener { keyHaptic(); listener.onClipboardPaste(clip) }
+        }, LinearLayout.LayoutParams(0, MATCH, 1f))
+        // ✕ dismisses the chip back to the icon toolbar.
+        suggestionRow.addView(TextView(context).apply {
+            text = "✕"
+            gravity = Gravity.CENTER
+            setTextColor(colIcon)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            background = drawable(R.drawable.key_flat_bg)
+            setOnClickListener { keyHaptic(); listener.onClipboardSuggestionDismissed() }
+        }, LinearLayout.LayoutParams(dp(44), MATCH))
     }
 
     private fun renderSuggestionChips(list: List<String>) {
@@ -757,11 +810,11 @@ class KeyboardView(
     }
 
     private fun showKeyboard() {
+        activePanel = "keyboard"
         listener.onContentPanelChanged()
         clearSuggestions()
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
-        activePanel = "keyboard"
         emojiSuggestedRow = null
         emojiLoadingAnimator?.cancel()
         emojiLoadingAnimator = null
@@ -773,11 +826,11 @@ class KeyboardView(
     }
 
     private fun showEmoji() {
+        activePanel = "emoji"
         listener.onContentPanelChanged()
         clearSuggestions()
         emojiPanelOpen = true
         searchMode = SearchMode.NONE
-        activePanel = "emoji"
         (keyRows.parent as? ViewGroup)?.removeView(keyRows)
         contentContainer.removeAllViews()
         contentContainer.addView(buildEmojiPanel(), FrameLayout.LayoutParams(MATCH, WRAP))
@@ -785,11 +838,11 @@ class KeyboardView(
     }
 
     private fun showClipboard() {
+        activePanel = "clipboard"
         listener.onContentPanelChanged()
         clearSuggestions()
         emojiPanelOpen = false
         searchMode = SearchMode.NONE
-        activePanel = "clipboard"
         emojiSuggestedRow = null
         clipSelecting = false
         clipSelected.clear()
@@ -943,11 +996,11 @@ class KeyboardView(
         if (searchMode == SearchMode.GIF) "\uD83D\uDD0D  Search GIFs" else "\uD83D\uDD0D  Search emoji"
 
     private fun showSearch(mode: SearchMode) {
+        activePanel = if (mode == SearchMode.GIF) "gif" else "emoji"
         listener.onContentPanelChanged()
         clearSuggestions()
         searchMode = mode
         emojiPanelOpen = false
-        activePanel = if (mode == SearchMode.GIF) "gif" else "emoji"
         searchQuery.setLength(0)
         contentContainer.removeAllViews()
         (keyRows.parent as? ViewGroup)?.removeView(keyRows)

@@ -102,6 +102,12 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var lastOriginal: String? = null
     private var lastCorrected: String? = null
 
+    // Recent-copy "tap to paste" chip in the action bar: the latest clip text, when
+    // it was recorded, and whether the user dismissed it this empty-field session.
+    private var lastClipText: String? = null
+    private var lastClipAtMs = 0L
+    private var clipSuggestionDismissed = false
+
     private val green = Color.parseColor("#37D67A")
     private val red = Color.parseColor("#FF6B6B")
     private val orange = Color.parseColor("#FF9F43")
@@ -129,6 +135,49 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
                 ?.getItemAt(0)?.coerceToText(this)?.toString()
         }.getOrNull()
         ClipboardHistory.add(applicationContext, text)
+        val trimmed = text?.trim().orEmpty()
+        if (trimmed.isNotEmpty() && trimmed != lastClipText) {
+            // A fresh copy: remember it and re-offer the paste chip.
+            lastClipText = trimmed
+            lastClipAtMs = System.currentTimeMillis()
+            clipSuggestionDismissed = false
+        }
+        refreshClipSuggestion()
+    }
+
+    /**
+     * Shows or hides the "tap to paste" chip. We only offer it while the field is
+     * empty (the user hasn't started typing) and there's a recent, non-dismissed
+     * copy. Emptying the field again re-arms it.
+     */
+    private fun refreshClipSuggestion() {
+        val kb = keyboard ?: return
+        if (isSecureField || !isFieldEmpty()) {
+            // Typing into the field re-arms the chip for when it's cleared again.
+            clipSuggestionDismissed = false
+            kb.setClipboardSuggestion(null)
+            return
+        }
+        if (clipSuggestionDismissed) {
+            kb.setClipboardSuggestion(null)
+            return
+        }
+        kb.setClipboardSuggestion(currentOfferableClip())
+    }
+
+    /** True when the edited field has no text at all (caret has nothing around it). */
+    private fun isFieldEmpty(): Boolean {
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(1, 0)
+        val after = ic.getTextAfterCursor(1, 0)
+        return before.isNullOrEmpty() && after.isNullOrEmpty()
+    }
+
+    /** The recent clip to offer, or null if there's none or it's gone stale. */
+    private fun currentOfferableClip(): String? {
+        val text = lastClipText?.takeIf { it.isNotEmpty() } ?: return null
+        if (System.currentTimeMillis() - lastClipAtMs > CLIP_SUGGESTION_TTL_MS) return null
+        return text
     }
 
     override fun onCreateInputView(): View {
@@ -163,6 +212,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         lastSelEnd = if (selEnd >= 0) selEnd else 0
         // Always reveal the normal letter keyboard, never the last panel/symbols page.
         keyboard?.resetToLetters()
+        // A new field re-arms the paste chip; captureClipboard then offers it if the
+        // field is empty and there's a recent copy.
+        clipSuggestionDismissed = false
         captureClipboard()
 
         val s = settings.snapshot()
@@ -212,6 +264,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             clearPendingAutoFix()
             pendingKeepWord = null
         }
+        refreshClipSuggestion()
         refreshAutoCaps()
     }
 
@@ -251,6 +304,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         if (!didAutoFix) currentInputConnection?.commitText(text, 1)
         maybeConfirmKeptRevert(text)
         updateSuggestions()
+        refreshClipSuggestion()
         refreshAutoCaps()
         scheduleAutoCorrection()
         scheduleToneCheck()
@@ -391,9 +445,32 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         ic.commitText("$word ", 1)
         ic.endBatchEdit()
         keyboard?.setSuggestions(emptyList())
+        refreshClipSuggestion()
         refreshAutoCaps()
         scheduleAutoCorrection()
         scheduleToneCheck()
+    }
+
+    override fun onClipboardPaste(text: String) {
+        cancelInFlightFix()
+        clearLastFix()
+        keyboard?.clearTone()
+        clearPendingAutoFix()
+        pendingKeepWord = null
+        currentInputConnection?.commitText(text, 1)
+        ClipboardHistory.add(applicationContext, text) // bump to most-recent
+        // It's been pasted: drop the chip until the next copy.
+        clipSuggestionDismissed = true
+        keyboard?.setClipboardSuggestion(null)
+        updateSuggestions()
+        refreshAutoCaps()
+        scheduleAutoCorrection()
+        scheduleToneCheck()
+    }
+
+    override fun onClipboardSuggestionDismissed() {
+        clipSuggestionDismissed = true
+        keyboard?.setClipboardSuggestion(null)
     }
 
     /** Phrase memory learns a word once the user reverts its autocorrect and keeps
@@ -429,6 +506,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             if (!deleteSelectionIfAny()) currentInputConnection?.deleteSurroundingText(1, 0)
         }
         updateSuggestions()
+        refreshClipSuggestion()
         refreshAutoCaps()
         scheduleAutoCorrection()
         scheduleToneCheck()
@@ -479,6 +557,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         backspaceJob?.cancel()
         backspaceJob = null
         updateSuggestions()
+        refreshClipSuggestion()
         refreshAutoCaps()
         scheduleAutoCorrection()
     }
@@ -572,6 +651,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         val out = if (shouldAutoCap()) word.replaceFirstChar { it.uppercase() } else word
         ic.commitText("$out ", 1)
         updateSuggestions()
+        refreshClipSuggestion()
         refreshAutoCaps()
         scheduleAutoCorrection()
         scheduleToneCheck()
@@ -1037,5 +1117,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     companion object {
         private const val MAX_CONTEXT = 4000
+
+        // How long after a copy we keep offering the "tap to paste" chip (1 hour).
+        private const val CLIP_SUGGESTION_TTL_MS = 60L * 60L * 1000L
     }
 }
