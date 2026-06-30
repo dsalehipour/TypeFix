@@ -35,54 +35,6 @@
 
 ---
 
-## 📱 TypeFix Keyboard for Android
-
-The same idea as a **soft keyboard** for Android: type fast and sloppy, tap the
-**✨ Fix** key (or let it auto-fix when you pause), and it rewrites the line in
-place using an on-device LLM or your cloud key. Plus a Samsung-style layout,
-emoji search, GIF search, swipe typing, and haptics.
-
-### See it in action
-
-<table>
-  <tr>
-    <td width="50%" valign="top" align="center">
-      <img src="docs/videos/android-typos.gif" alt="Fixing typos in place on Android" width="100%">
-      <br><b>Fix typos in place</b>
-      <br><sub>Type fast and sloppy, then let TypeFix rewrite the line.</sub>
-    </td>
-    <td width="50%" valign="top" align="center">
-      <img src="docs/videos/android-emojis-gifs.gif" alt="Context-aware emoji and GIF search on Android" width="100%">
-      <br><b>Emojis &amp; GIFs with context</b>
-      <br><sub>Context-aware emoji and GIF suggestions from your message.</sub>
-    </td>
-  </tr>
-</table>
-
-<p align="center">
-  <img src="docs/videos/android-phone-width.gif" alt="TypeFix at normal phone width" width="300">
-  <br><b>Normal phone width</b>
-  <br><sub>The everyday single-column layout on a regular phone.</sub>
-</p>
-
-**Get it on your phone (2 minutes):**
-
-1. On your **Android phone**, open this repo's
-   **[Releases page](https://github.com/dsalehipour/typefix/releases)** (sign in
-   to GitHub if prompted) and tap
-   **[TypeFix-Keyboard.apk](https://github.com/dsalehipour/typefix/releases/download/android-latest/TypeFix-Keyboard.apk)**
-   to download it.
-2. Open the downloaded file. Android will ask to **allow installs from this
-   source** — enable it, then tap **Install**.
-3. Open **TypeFix**, tap **Enable TypeFix keyboard**, then **Switch to TypeFix**.
-4. (Optional) For on-device corrections, download a model in Settings, or paste a
-   cloud API key. **GIF search works out of the box** (KLIPY, built in).
-
-Full Android details (build from source, features, settings) are in
-**[android/README.md](android/README.md)**.
-
----
-
 ## A quick look
 
 <table>
@@ -313,6 +265,56 @@ If you ever need a clean slate:
 ```bash
 tccutil reset Accessibility com.typefix.app
 ```
+
+---
+
+## 📱 TypeFix Keyboard for Android
+
+The same idea as a **soft keyboard** for Android: type fast and sloppy, tap the
+**✨ Fix** key (or let it auto-fix when you pause), and it rewrites the line in
+place using an on-device LLM or your cloud key. Plus a Samsung-style layout,
+emoji search, GIF search, swipe typing, and haptics.
+
+### See it in action
+
+<table>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <img src="docs/videos/android-typos.gif" alt="Fixing typos in place on Android" width="100%">
+      <br><b>Fix typos in place</b>
+      <br><sub>Type fast and sloppy, then let TypeFix rewrite the line.</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <img src="docs/videos/android-emojis-gifs.gif" alt="Context-aware emoji and GIF search on Android" width="100%">
+      <br><b>Emojis &amp; GIFs with context</b>
+      <br><sub>Context-aware emoji and GIF suggestions from your message.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/videos/android-phone-width.gif" alt="TypeFix at normal phone width" width="300">
+  <br><b>Normal phone width</b>
+  <br><sub>The everyday single-column layout on a regular phone.</sub>
+</p>
+
+**Get it on your phone (2 minutes):**
+
+1. On your **Android phone**, open this repo's
+   **[Releases page](https://github.com/dsalehipour/typefix/releases)** (sign in
+   to GitHub if prompted) and tap
+   **[TypeFix-Keyboard.apk](https://github.com/dsalehipour/typefix/releases/download/android-latest/TypeFix-Keyboard.apk)**
+   to download it.
+2. Open the downloaded file. Android will ask to **allow installs from this
+   source** — enable it, then tap **Install**.
+3. Open **TypeFix**, tap **Enable TypeFix keyboard**, then **Switch to TypeFix**.
+4. (Optional) For on-device corrections, download a model in Settings, or paste a
+   cloud API key. **GIF search works out of the box** (KLIPY, built in).
+
+Full Android details (build from source, features, settings) are in
+**[android/README.md](android/README.md)**.
+
+---
 
 ## License
 
