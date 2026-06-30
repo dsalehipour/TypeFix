@@ -699,7 +699,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         val code = if (steps < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
         repeat(kotlin.math.abs(steps).coerceAtMost(60)) {
             sendDownUpKeyEvents(code)
-            Haptics.tick(applicationContext, 5, 70) // a tick per character the cursor moves
+            Haptics.tick(applicationContext, 5, 45) // a tick per character the cursor moves
         }
     }
 
