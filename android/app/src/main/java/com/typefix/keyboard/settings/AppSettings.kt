@@ -105,9 +105,10 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getString(Keys.KLIPY_KEY, "").orEmpty()
         set(value) { prefs.edit().putString(Keys.KLIPY_KEY, value.trim()).apply(); publish() }
 
-    /** Learn frequently-typed niche words and stop "correcting" them. Off by default. */
+    /** Learn niche words from kept autocorrect reverts and stop "correcting" them.
+     *  On by default. */
     var phraseMemoryEnabled: Boolean
-        get() = prefs.getBoolean(Keys.PHRASE_MEMORY, false)
+        get() = prefs.getBoolean(Keys.PHRASE_MEMORY, true)
         set(value) { prefs.edit().putBoolean(Keys.PHRASE_MEMORY, value).apply(); publish() }
 
     /** Rewrite rambling voice transcripts into a concise message. On by default. */
