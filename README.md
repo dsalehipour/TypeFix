@@ -47,12 +47,12 @@ emoji search, GIF search, swipe typing, and haptics.
 <table>
   <tr>
     <td width="50%" valign="top" align="center">
-      <video src="https://github.com/dsalehipour/typefix/raw/main/docs/videos/android-typos.mp4" controls muted playsinline width="100%"></video>
+      <img src="docs/videos/android-typos.gif" alt="Fixing typos in place on Android" width="100%">
       <br><b>Fix typos in place</b>
       <br><sub>Type fast and sloppy, then let TypeFix rewrite the line.</sub>
     </td>
     <td width="50%" valign="top" align="center">
-      <video src="https://github.com/dsalehipour/typefix/raw/main/docs/videos/android-emojis-gifs.mp4" controls muted playsinline width="100%"></video>
+      <img src="docs/videos/android-emojis-gifs.gif" alt="Context-aware emoji and GIF search on Android" width="100%">
       <br><b>Emojis &amp; GIFs with context</b>
       <br><sub>Context-aware emoji and GIF suggestions from your message.</sub>
     </td>
@@ -60,12 +60,10 @@ emoji search, GIF search, swipe typing, and haptics.
 </table>
 
 <p align="center">
-  <video src="https://github.com/dsalehipour/typefix/raw/main/docs/videos/android-phone-width.mp4" controls muted playsinline width="300"></video>
+  <img src="docs/videos/android-phone-width.gif" alt="TypeFix at normal phone width" width="300">
   <br><b>Normal phone width</b>
   <br><sub>The everyday single-column layout on a regular phone.</sub>
 </p>
-
-<sub>Videos not playing inline? Tap any of them to open it in a new tab.</sub>
 
 **Get it on your phone (2 minutes):**
 
