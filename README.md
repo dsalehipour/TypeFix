@@ -42,6 +42,31 @@ The same idea as a **soft keyboard** for Android: type fast and sloppy, tap the
 place using an on-device LLM or your cloud key. Plus a Samsung-style layout,
 emoji search, GIF search, swipe typing, and haptics.
 
+### See it in action
+
+<table>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <video src="https://github.com/dsalehipour/typefix/raw/main/docs/videos/android-typos.mp4" controls muted playsinline width="100%"></video>
+      <br><b>Fix typos in place</b>
+      <br><sub>Type fast and sloppy, then let TypeFix rewrite the line.</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <video src="https://github.com/dsalehipour/typefix/raw/main/docs/videos/android-emojis-gifs.mp4" controls muted playsinline width="100%"></video>
+      <br><b>Emojis &amp; GIFs with context</b>
+      <br><sub>Context-aware emoji and GIF suggestions from your message.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <video src="https://github.com/dsalehipour/typefix/raw/main/docs/videos/android-phone-width.mp4" controls muted playsinline width="300"></video>
+  <br><b>Normal phone width</b>
+  <br><sub>The everyday single-column layout on a regular phone.</sub>
+</p>
+
+<sub>Videos not playing inline? Tap any of them to open it in a new tab.</sub>
+
 **Get it on your phone (2 minutes):**
 
 1. On your **Android phone**, open this repo's
