@@ -235,13 +235,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         }
 
         keyboard?.setAutoModeIndicator(s.correctionMode == CorrectionMode.AUTO)
-        keyboard?.hint(
-            when {
-                isSecureField -> "Password field · TypeFix off"
-                s.correctionMode == CorrectionMode.AUTO -> "Auto · hold ✨ to toggle"
-                else -> "Manual · tap ✨ Fix · hold to arm Auto"
-            }
-        )
+        // Show the action buttons immediately — no transient hint text on open.
         refreshAutoCaps()
     }
 
