@@ -296,10 +296,12 @@ class KeyboardView(
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(color(R.color.kb_actionbar))
             visibility = GONE
+            // Undo sits on the LEFT (away from apps' bottom-right Send buttons).
+            // When it's hidden the label just starts at the left edge as before.
+            addView(undoButton, LayoutParams(WRAP, WRAP).apply { marginStart = dp(8); marginEnd = dp(4) })
             addView(statusLabel, LayoutParams(0, MATCH, 1f))
             addView(toneButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
             addView(cancelButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
-            addView(undoButton, LayoutParams(WRAP, WRAP).apply { marginEnd = dp(6) })
         }
         buildToolbar()
         suggestionRow = LinearLayout(context).apply {

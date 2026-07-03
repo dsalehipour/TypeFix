@@ -1016,10 +1016,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
                             startWritingHaptics()
                             delay((result.text.length * 14L).coerceIn(220L, 700L))
                             stopWritingHaptics()
-                            keyboard?.showUndo(
-                                if (result.possibleTypo) "Fixed · check spelling" else "Fixed",
-                                if (result.possibleTypo) orange else green,
-                            )
+                            keyboard?.showUndo("Fixed", green)
                         } else {
                             keyboard?.flash("Looks good", green)
                         }

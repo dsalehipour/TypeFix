@@ -21,8 +21,8 @@ android {
         applicationId = "com.typefix.keyboard"
         minSdk = 28
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.1.17"
+        versionCode = 19
+        versionName = "0.1.18"
         buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
         // LiteRT-LM ships large native libs; arm64 covers all modern phones (and
         // the Apple-silicon arm64 emulator), keeping the APK from ballooning.
