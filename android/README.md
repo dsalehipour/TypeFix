@@ -12,7 +12,7 @@ productized sibling of that stack) behind a swappable `InferenceEngine`.
 
 ## Install on your phone (sideload)
 
-**[⬇️ Download the latest APK](https://github.com/dsalehipour/typefix/releases/download/android-v0.1.0/TypeFix-Keyboard.apk)**
+**[⬇️ Download the latest APK](https://github.com/dsalehipour/typefix/releases/download/android-v0.1.19/TypeFix-Keyboard.apk)**
 — or browse [all releases](https://github.com/dsalehipour/typefix/releases).
 
 1. Open that link **on your Android phone** (sign in to GitHub if the repo
@@ -25,8 +25,26 @@ productized sibling of that stack) behind a swappable `InferenceEngine`.
    **GIF search works out of the box** (KLIPY key built in); you can paste your
    own KLIPY key to override it.
 
-> Requires **Android 9 (API 28)+**. This is a debug-signed build for sideloading,
-> so Android shows the usual "unknown source" prompt — that's expected.
+> Requires **Android 9 (API 28)+**. Sideloaded builds show the usual "unknown
+> source" prompt the first time — that's expected.
+
+## Updating
+
+The app updates itself in-place — no need to hunt down a new APK:
+
+- **Automatic:** on launch TypeFix quietly checks GitHub for a newer release (at
+  most once every 6 hours) and, if there is one, shows an **"Update available"**
+  banner at the top of Settings.
+- **Manual:** Settings → **Updates → Check for updates** any time.
+- Tapping **Download & install** pulls the new APK and opens Android's installer;
+  you tap **Update** once (the first time, Android asks you to allow installs
+  from TypeFix). Android has no fully-silent install path for sideloaded apps —
+  that single confirmation tap is required by the OS.
+
+> **One-time reinstall:** builds up to v0.1.18 were *debug-signed*. The first
+> release-signed build (with the updater) has a different signature, so Android
+> won't install it over a debug build — uninstall the old TypeFix once, then
+> install the new APK. Every update after that installs cleanly on top.
 
 ## Why a keyboard?
 
@@ -82,6 +100,56 @@ its own JDK + SDK + NDK):
 
 If you have the Gradle CLI installed you can instead run
 `gradle wrapper` once to generate `gradlew`, then `./gradlew assembleDebug`.
+
+## Publishing a release (so the in-app updater sees it)
+
+The updater compares the running app's `versionName` against the newest GitHub
+release that ships an `.apk` asset, so each release must be **signed with the
+same key** and carry a **higher version**.
+
+1. Bump `versionCode` **and** `versionName` in `app/build.gradle.kts`.
+2. Build the signed release APK:
+
+```bash
+./gradlew :app:assembleRelease
+```
+
+   The signed APK lands at `app/build/outputs/apk/release/app-release.apk`.
+3. Create a GitHub release tagged `android-vX.Y.Z` (the version is parsed from
+   the tag) and upload the APK as a release asset. Installed apps will detect it
+   on their next check.
+
+### Release signing
+
+Release builds are signed with a stable key defined in **`keystore.properties`**
+(kept out of git) pointing at **`keystore/typefix-release.jks`**. Both are
+generated once and must be reused for every release — Android only installs an
+update over an existing app when the signature matches.
+
+> **Back up `keystore/typefix-release.jks` and `keystore.properties` somewhere
+> safe.** If you lose them you can never ship an update that installs on top of
+> an existing install again — every user would have to uninstall and reinstall
+> (losing their settings).
+
+To generate a fresh key (only needed if you don't already have one):
+
+```bash
+keytool -genkeypair -v \
+  -keystore keystore/typefix-release.jks -storetype PKCS12 \
+  -alias typefix -keyalg RSA -keysize 2048 -validity 10950
+```
+
+then fill in `keystore.properties`:
+
+```properties
+storeFile=keystore/typefix-release.jks
+storePassword=…
+keyAlias=typefix
+keyPassword=…
+```
+
+If `keystore.properties` is absent (e.g. on another machine or CI), release
+builds fall back to unsigned/debug-style behavior so debug builds still work.
 
 ## Settings ↔ macOS TypeFix mapping
 

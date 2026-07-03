@@ -13,6 +13,13 @@ val klipyApiKey: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("KLIPY_API_KEY", "")
 
+// Release signing, read from keystore.properties (kept out of git). Present on
+// the machine that publishes releases; absent elsewhere (debug builds still
+// work). Every release MUST be signed with this same key or the in-app updater
+// can't install over an existing install.
+val keystoreProps: Properties? = rootProject.file("keystore.properties").takeIf { it.exists() }
+    ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
+
 android {
     namespace = "com.typefix.keyboard"
     compileSdk = 35
@@ -21,12 +28,26 @@ android {
         applicationId = "com.typefix.keyboard"
         minSdk = 28
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.1.18"
+        versionCode = 20
+        versionName = "0.1.19"
         buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
+        // Where the in-app updater looks for new releases.
+        buildConfigField("String", "GITHUB_OWNER", "\"dsalehipour\"")
+        buildConfigField("String", "GITHUB_REPO", "\"typefix\"")
         // LiteRT-LM ships large native libs; arm64 covers all modern phones (and
         // the Apple-silicon arm64 emulator), keeping the APK from ballooning.
         ndk { abiFilters += "arm64-v8a" }
+    }
+
+    signingConfigs {
+        if (keystoreProps != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -36,6 +57,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Sign with the stable release key when keystore.properties is present
+            // (the release-publishing machine); otherwise fall back so debug-style
+            // builds still succeed elsewhere.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

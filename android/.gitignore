@@ -10,3 +10,9 @@
 local.properties
 /app/build
 .kotlin
+
+# Release signing — keep the keystore and its passwords out of git.
+/keystore/
+keystore.properties
+*.jks
+*.keystore

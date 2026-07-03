@@ -58,6 +58,7 @@ import com.typefix.keyboard.model.CorrectionMode
 import com.typefix.keyboard.model.Provider
 import com.typefix.keyboard.settings.AppSettings
 import com.typefix.keyboard.settings.SettingsSnapshot
+import com.typefix.keyboard.update.UpdateChecker
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,6 +77,7 @@ fun SettingsScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             SetupCard(context)
+            UpdatesCard(context)
             ProviderCard(settings, snapshot.provider)
             if (snapshot.provider.isLocal) {
                 LocalModelCard(context, settings, snapshot.localModelId)
@@ -141,6 +143,125 @@ private fun SetupCard(context: Context) {
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Switch to TypeFix") }
     }
+}
+
+@Composable
+private fun UpdatesCard(context: Context) {
+    val state by UpdateChecker.state.collectAsState()
+    val current = com.typefix.keyboard.BuildConfig.VERSION_NAME
+
+    SectionCard("Updates") {
+        when (val s = state) {
+            is UpdateChecker.State.Available -> {
+                Text(
+                    "Update available: v${s.info.versionName}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "You're on v$current." +
+                        if (s.info.sizeBytes > 0) " Download is ~${s.info.sizeBytes / 1_000_000} MB." else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (s.info.notes.isNotBlank()) {
+                    Text(
+                        s.info.notes.lineSequence().take(6).joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Button(
+                    onClick = { UpdateChecker.download(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Download & install") }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    if (s.info.htmlUrl.isNotBlank()) {
+                        TextButton(onClick = { openUrl(context, s.info.htmlUrl) }) { Text("View release") }
+                    }
+                    TextButton(onClick = { UpdateChecker.dismiss() }) { Text("Not now") }
+                }
+            }
+
+            is UpdateChecker.State.Downloading -> {
+                Text("Downloading v${s.info.versionName}…", style = MaterialTheme.typography.bodyMedium)
+                LinearProgressIndicator(
+                    progress = { s.progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "${(s.progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            is UpdateChecker.State.ReadyToInstall -> {
+                Text(
+                    "Downloaded v${s.info.versionName}.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "If the installer didn't open, tap Install (you may need to allow " +
+                        "installs from TypeFix the first time).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = { UpdateChecker.install(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Install") }
+            }
+
+            is UpdateChecker.State.Checking -> {
+                Text("Checking for updates…", style = MaterialTheme.typography.bodySmall)
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            is UpdateChecker.State.Error -> {
+                Text(
+                    "Couldn't check: ${s.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                OutlinedButton(
+                    onClick = { UpdateChecker.check(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Try again") }
+            }
+
+            is UpdateChecker.State.UpToDate -> {
+                Text(
+                    "You're on the latest version (v${s.current}).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = { UpdateChecker.check(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Check again") }
+            }
+
+            UpdateChecker.State.Idle -> {
+                Text(
+                    "You're on v$current. Checks GitHub for a newer sideload build.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = { UpdateChecker.check(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Check for updates") }
+            }
+        }
+    }
+}
+
+private fun openUrl(context: Context, url: String) {
+    context.startActivity(
+        Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
 }
 
 @Composable
