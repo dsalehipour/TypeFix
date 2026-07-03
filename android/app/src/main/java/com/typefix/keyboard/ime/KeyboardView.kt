@@ -206,7 +206,6 @@ class KeyboardView(
     private var typeFixOff = false
     private var sparkleIcon: ImageView? = null
     private var sparkleDot: View? = null
-    private var quickMenuPopup: PopupWindow? = null
     private var holdPopup: PopupWindow? = null
     private var holdView: HoldProgressView? = null
     private var holdAnimator: ValueAnimator? = null
@@ -617,7 +616,8 @@ class KeyboardView(
         add(buildSettings())
     }
 
-    /** ⚙ key: tap = open Settings; hold = toggle Auto mode (with the hold ring). */
+    /** ⚙ key: a quick tap opens full Settings (or closes the options panel while
+     *  it's showing); a short hold reveals the in-keyboard options panel. */
     private fun buildSettings(): View {
         val icon = ImageView(context).apply {
             setImageResource(R.drawable.ic_kb_settings)
@@ -627,112 +627,149 @@ class KeyboardView(
             background = drawable(R.drawable.key_flat_bg)
             isClickable = true
         }
-        icon.setOnTouchListener { _, e ->
-            handleHoldTouch(
-                icon, e,
-                holdGlyph = "\u2699",
-                holdCaption = "Hold for options…",
-                doneGlyph = "\u2630",
-                doneCaption = { "Options" },
-                onTap = { listener.onOpenSettings() },
-                onComplete = {
-                    dismissHoldPopup()
-                    showSettingsQuickMenu(icon)
-                },
-            )
-        }
+        icon.setOnTouchListener { _, e -> handleSettingsTouch(icon, e) }
         return icon
     }
 
-    /** The press-and-hold menu on the ⚙ key: Auto-fix, Pause, and per-app disable.
-     *  A quick tap still opens full Settings. */
-    private fun showSettingsQuickMenu(anchor: View) {
-        dismissQuickMenu()
-        val container = LinearLayout(context).apply {
-            orientation = VERTICAL
-            background = popupBg()
-            setPadding(dp(5), dp(5), dp(5), dp(5))
-        }
+    private var settingsHoldRunnable: Runnable? = null
+    private var settingsHoldFired = false
 
-        fun row(glyph: String, label: String, onClick: () -> Unit) {
-            val r = LinearLayout(context).apply {
-                orientation = HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                background = drawable(R.drawable.key_flat_bg)
-                setPadding(dp(12), dp(11), dp(20), dp(11))
-                isClickable = true
-                addView(TextView(context).apply {
-                    text = glyph
-                    setTextColor(colText)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                    width = dp(30)
-                    gravity = Gravity.CENTER
-                })
-                addView(TextView(context).apply {
-                    text = label
-                    setTextColor(colText)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                    isSingleLine = true
-                })
-                setOnClickListener {
-                    Haptics.tick(context, 8, 90)
-                    onClick()
-                    dismissQuickMenu()
+    /**
+     * Settings-key gesture. A short [SETTINGS_HOLD_MS] hold pops the options into
+     * an in-keyboard panel (no more slow ring-fill, no off-screen popup); a quick
+     * tap opens the full Settings app, or backs out of the panel if it's open.
+     */
+    private fun handleSettingsTouch(icon: ImageView, e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                icon.isPressed = true
+                settingsHoldFired = false
+                val r = Runnable {
+                    settingsHoldFired = true
+                    keyHaptic()
+                    showSettingsPanel()
+                }
+                settingsHoldRunnable = r
+                postDelayed(r, SETTINGS_HOLD_MS)
+            }
+            MotionEvent.ACTION_UP -> {
+                icon.isPressed = false
+                settingsHoldRunnable?.let { removeCallbacks(it) }
+                if (!settingsHoldFired) {
+                    // Quick tap: close the panel if it's showing, else open Settings.
+                    if (activePanel == "settings") showKeyboard()
+                    else listener.onOpenSettings()
                 }
             }
-            container.addView(
-                r,
-                LinearLayout.LayoutParams(MATCH, WRAP).apply {
-                    topMargin = dp(2); bottomMargin = dp(2)
-                },
-            )
+            MotionEvent.ACTION_CANCEL -> {
+                icon.isPressed = false
+                settingsHoldRunnable?.let { removeCallbacks(it) }
+            }
+        }
+        return true
+    }
+
+    /**
+     * The ⚙ options as a temporary in-keyboard panel (replacing the key area) so
+     * nothing is ever clipped off-screen: Auto-fix, Pause, per-app disable, and a
+     * shortcut into the full Settings app. Tapping an action performs it and
+     * returns to typing; "Done"/ABC (or tapping ⚙ again) backs out.
+     */
+    private fun showSettingsPanel() {
+        activePanel = "settings"
+        listener.onContentPanelChanged()
+        clearSuggestions()
+        emojiPanelOpen = false
+        searchMode = SearchMode.NONE
+        emojiSuggestedRow = null
+        (keyRows.parent as? ViewGroup)?.removeView(keyRows)
+        contentContainer.removeAllViews()
+        contentContainer.addView(buildSettingsPanel(), FrameLayout.LayoutParams(MATCH, WRAP))
+    }
+
+    private fun buildSettingsPanel(): View = LinearLayout(context).apply {
+        orientation = VERTICAL
+
+        // Header: a title on the left, a "Done" affordance on the right.
+        addView(LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(4), dp(8), dp(4))
+            addView(TextView(context).apply {
+                text = "TypeFix options"
+                setTextColor(colTextSecondary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            }, LayoutParams(0, WRAP, 1f))
+            addView(clipAction("Done", colAccent) { showKeyboard() })
+        }, LayoutParams(MATCH, dp(34)))
+
+        val scroll = ScrollView(context)
+        val list = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(8), dp(2), dp(8), dp(2))
         }
 
-        row("\u2728", if (autoModeOn) "Turn off Auto-fix" else "Turn on Auto-fix") {
+        fun action(glyph: String, label: String, onClick: () -> Unit) {
+            list.addView(settingsActionRow(glyph, label, onClick))
+        }
+
+        action("\u2728", if (autoModeOn) "Turn off Auto-fix" else "Turn on Auto-fix") {
             listener.onToggleAutoMode()
         }
-        row(if (listener.isTypeFixPaused()) "\u25B6" else "\u23F8", if (listener.isTypeFixPaused()) "Resume TypeFix" else "Pause TypeFix") {
+        action(
+            if (listener.isTypeFixPaused()) "\u25B6" else "\u23F8",
+            if (listener.isTypeFixPaused()) "Resume TypeFix" else "Pause TypeFix",
+        ) {
             listener.onTogglePause()
         }
         val appLabel = listener.currentAppLabel()
-        row("\u2298", if (listener.isCurrentAppDisabled()) "Enable in $appLabel" else "Disable in $appLabel") {
+        action(
+            "\u2298",
+            if (listener.isCurrentAppDisabled()) "Enable in $appLabel" else "Disable in $appLabel",
+        ) {
             listener.onToggleDisableApp()
         }
-
-        // NOT focusable: a focusable popup steals focus from the edited field and
-        // the system hides the IME (same as the accent/alternates popup).
-        container.measure(
-            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.AT_MOST),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-        )
-        val w = container.measuredWidth.coerceAtLeast(dp(200))
-        val h = container.measuredHeight
-        val popup = PopupWindow(container, w, h, false).apply {
-            isClippingEnabled = false
-            isTouchable = true
-            isOutsideTouchable = true
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            elevation = dp(10).toFloat()
-            setOnDismissListener { quickMenuPopup = null }
+        action("\u2699", "Open TypeFix settings") {
+            listener.onOpenSettings()
         }
-        quickMenuPopup = popup
-        val loc = IntArray(2)
-        anchor.getLocationOnScreen(loc)
-        val margin = dp(6)
-        val rootLoc = IntArray(2)
-        getLocationOnScreen(rootLoc)
-        // Right-align to the ⚙ key, above it, clamped to the keyboard's width.
-        var x = loc[0] + anchor.width - w
-        x = x.coerceIn(rootLoc[0] + margin, (rootLoc[0] + width - w - margin).coerceAtLeast(rootLoc[0] + margin))
-        var y = loc[1] - h - dp(8)
-        if (y < dp(8)) y = loc[1] + anchor.height + dp(8) // fall below if no room above
-        popup.showAtLocation(this, Gravity.NO_GRAVITY, x, y)
+
+        scroll.addView(list)
+        addView(scroll, LayoutParams(MATCH, dp(172)))
+        addView(panelBottomBar())
     }
 
-    private fun dismissQuickMenu() {
-        quickMenuPopup?.dismiss()
-        quickMenuPopup = null
-    }
+    /** One tappable options row, styled like the letter keys. Performing the
+     *  action always returns to the normal keyboard. */
+    private fun settingsActionRow(glyph: String, label: String, onClick: () -> Unit): View =
+        LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = drawable(R.drawable.key_letter_bg)
+            setPadding(dp(14), dp(11), dp(16), dp(11))
+            layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply {
+                setMargins(dp(2), dp(3), dp(2), dp(3))
+            }
+            isClickable = true
+            addView(TextView(context).apply {
+                text = glyph
+                gravity = Gravity.CENTER
+                setTextColor(colText)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+                width = dp(34)
+            })
+            addView(TextView(context).apply {
+                text = label
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(colText)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            setOnClickListener {
+                keyHaptic()
+                onClick()
+                showKeyboard()
+            }
+        }
 
     /** Tapping a toolbar icon opens its panel; tapping it again closes it. */
     private fun togglePanel(name: String) {
@@ -2080,6 +2117,10 @@ class KeyboardView(
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         private const val CENTER_GAP = 3.2f
+
+        // Short hold on the ⚙ key to reveal its options panel. Well above a normal
+        // tap, but far snappier than the old ~2s ring-fill it replaced.
+        private const val SETTINGS_HOLD_MS = 180L
 
         private val NUMBERS = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
         private val ROW1 = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
