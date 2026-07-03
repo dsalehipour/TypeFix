@@ -1,6 +1,6 @@
 # TypeFix Keyboard (Android)
 
-An Android port of [TypeFix](../) as a **soft keyboard (IME)** that fixes your
+An Android port of [TypeFix](../) as an **on-screen keyboard (IME)** that fixes your
 typos in place using an **on-device LLM** (or, optionally, a cloud model). It
 reuses TypeFix's exact correction prompt, output cleaning, spell-check
 guardrail, and settings — adapted to Android.

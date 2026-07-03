@@ -68,7 +68,7 @@
 
 ## 📱 TypeFix Keyboard for Android
 
-The same idea as a **soft keyboard** for Android: type fast and sloppy, tap the
+The same idea as a full **on-screen keyboard** for Android: type fast and sloppy, tap the
 **✨ Fix** key (or let it auto-fix when you pause), and it rewrites the line in
 place using an on-device LLM or your cloud key. Plus a Samsung-style layout,
 emoji search, GIF search, swipe typing, and haptics.
