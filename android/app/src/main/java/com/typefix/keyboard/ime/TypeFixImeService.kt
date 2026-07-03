@@ -681,8 +681,23 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         }
     }
 
+    /** The recent bit of what the user is writing, used to seed emoji/GIF context.
+     *  Scoped to the current line and the last couple of sentences so suggestions
+     *  reflect the current thought instead of reaching back across the whole draft. */
+    private fun recentMessageContext(): String {
+        // Only look a short way back, and never across a line break (earlier lines
+        // are usually a different message/paragraph).
+        var t = currentInputConnection?.getTextBeforeCursor(120, 0)?.toString().orEmpty()
+        t = t.substringAfterLast('\n')
+        // Keep just the current sentence-ish tail (after an earlier . ! ?), so a
+        // finished sentence before the current one doesn't skew the vibe.
+        val cut = t.dropLast(1).indexOfLast { it in ".!?" }
+        if (cut >= 0) t = t.substring(cut + 1)
+        return t.trim()
+    }
+
     override fun onEmojiPanelShown() {
-        val text = currentInputConnection?.getTextBeforeCursor(200, 0)?.toString().orEmpty()
+        val text = recentMessageContext()
         val s = settings.snapshot()
         emojiSuggestJob?.cancel()
         // No model (or empty message) → just the instant offline suggestions.
@@ -757,7 +772,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             return
         }
         val s = settings.snapshot()
-        val text = currentInputConnection?.getTextBeforeCursor(200, 0)?.toString().orEmpty()
+        val text = recentMessageContext()
         keyboard?.setGifLoading()
         gifSuggestJob?.cancel()
         gifSuggestJob = scope.launch {
