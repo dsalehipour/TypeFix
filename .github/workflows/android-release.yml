@@ -1,0 +1,147 @@
+# Builds, signs, and publishes a TypeFix Android release.
+#
+# Triggered automatically when an `android-v*` tag is pushed (e.g.
+# `android-v0.1.21`), or manually via the "Run workflow" button with an
+# optional tag input. The job recreates the release-signing keystore from repo
+# secrets, builds the signed release APK, and publishes it to GitHub Releases.
+#
+# See android/RELEASING.md for the full release procedure and the one-time
+# secret setup this workflow depends on.
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "android-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing android-v* tag to (re)publish (defaults to the current ref)"
+        required: false
+        type: string
+
+# Needed so the default GITHUB_TOKEN can create/edit releases and upload assets.
+permissions:
+  contents: write
+
+# Serialize releases so concurrent runs can't clobber the rolling
+# `android-latest` asset out from under each other.
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      # ubuntu-latest ships the Android SDK preinstalled (ANDROID_SDK_ROOT /
+      # ANDROID_HOME are already set). This action makes the setup robust: it
+      # ensures cmdline-tools are present and accepts SDK licenses, so AGP can
+      # auto-provision platform 35 / build-tools if anything is missing.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Belt-and-suspenders: never let an unaccepted license fail the build.
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      # Recreate the gitignored signing material from repo secrets. These files
+      # live under android/ and are never committed (they match .gitignore's
+      # keystore.properties / /keystore/ / *.jks rules).
+      - name: Recreate signing material from secrets
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          mkdir -p keystore
+          # GNU base64 --decode ignores embedded newlines, so a wrapped or
+          # single-line ANDROID_KEYSTORE_BASE64 both decode cleanly.
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > keystore/typefix-release.jks
+          # Unquoted heredoc so the $VAR values expand; build.gradle.kts reads
+          # this exact file via rootProject.file("keystore.properties").
+          cat > keystore.properties <<EOF
+          storeFile=keystore/typefix-release.jks
+          storePassword=${ANDROID_KEYSTORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          keyPassword=${ANDROID_KEY_PASSWORD}
+          EOF
+
+      - name: Build signed release APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleRelease --stacktrace
+
+      # The release asset must be named exactly TypeFix-Keyboard.apk (the in-app
+      # updater and the README download button depend on this name).
+      - name: Rename APK
+        working-directory: android
+        run: cp app/build/outputs/apk/release/app-release.apk TypeFix-Keyboard.apk
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Prefer the manual dispatch input; otherwise use the pushed tag.
+          TAG="${INPUT_TAG:-$REF_NAME}"
+          # Strip the "android-" prefix so the title reads like the existing
+          # published releases ("TypeFix Keyboard for Android v0.1.20").
+          VERSION="${TAG#android-}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$TAG version=$VERSION"
+
+      # Publish the versioned release as the "Latest" release (NOT a pre-release).
+      # If it already exists, just refresh the asset instead of failing.
+      - name: Publish versioned release
+        working-directory: android
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading asset with --clobber"
+            gh release upload "$TAG" TypeFix-Keyboard.apk --clobber
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" TypeFix-Keyboard.apk \
+              --latest \
+              --title "TypeFix Keyboard for Android $VERSION" \
+              --generate-notes
+          fi
+
+      # Refresh the rolling `android-latest` release (the root README download
+      # button points here). Never flip its pre-release flag: only upload the
+      # asset when it exists; create it as a pre-release if it's somehow missing.
+      - name: Refresh android-latest rolling release
+        working-directory: android
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view android-latest > /dev/null 2>&1; then
+            gh release upload android-latest TypeFix-Keyboard.apk --clobber
+          else
+            gh release create android-latest TypeFix-Keyboard.apk \
+              --prerelease \
+              --title "TypeFix Keyboard for Android (latest)" \
+              --notes "Rolling latest Android build."
+          fi
