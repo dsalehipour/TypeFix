@@ -48,13 +48,39 @@ final class CorrectionEngine {
     // Auto mode
     private var autoBuffer = ""
     private var idleTimer: Timer?
+    /// Set when the user types, deletes, or moves the cursor while a correction is
+    /// in flight or being pasted, so its result / revert can be discarded.
     private var typedDuringProcessing = false
 
+    /// Bumped whenever pending work is hard-invalidated (mode change, boundary,
+    /// reset). Async LLM results and replacement completions captured under an old
+    /// value are stale and ignored.
+    private var generation = 0
+
     private var lastMode: CorrectionMode
+
+    // The foreground app, tracked so the per-app disable list can gate capture
+    // without querying NSWorkspace on every keystroke.
+    private var frontmostBundleID: String?
+    private var frontmostAppName: String?
+    private var appActivationObserver: NSObjectProtocol?
 
     init(settings: AppSettings) {
         self.settings = settings
         self.lastMode = settings.correctionMode
+
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            frontmostBundleID = front?.bundleIdentifier
+            frontmostAppName = front?.localizedName
+        }
+        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            self?.handleAppActivation(note)
+        }
 
         tap.shouldCapture = { [weak self] in self?.shouldCapture() ?? false }
         tap.isArmed = { [weak self] in self?.isArmed ?? false }
@@ -74,6 +100,12 @@ final class CorrectionEngine {
         tap.onUserInput = { [weak self] in self?.revertable = nil }
     }
 
+    deinit {
+        if let appActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appActivationObserver)
+        }
+    }
+
     func canRevert() -> Bool { revertable != nil }
 
     /// Undo the last applied correction in place (delete the corrected text and
@@ -85,9 +117,58 @@ final class CorrectionEngine {
         onReverted?()
     }
 
-    /// The app is active whenever it is running.
-    var isArmed: Bool { true }
+    /// Active unless globally paused or the foreground app is on the disable list.
+    var isArmed: Bool {
+        guard !settings.isPaused else { return false }
+        return !settings.isDisabled(bundleID: frontmostBundleID)
+    }
+
     var mode: CorrectionMode { settings.correctionMode }
+
+    // MARK: - Pause & per-app disable
+
+    var isPaused: Bool { settings.isPaused }
+
+    func setPaused(_ paused: Bool) {
+        guard settings.isPaused != paused else { return }
+        settings.isPaused = paused
+        if !isArmed { resetPending() }
+        onStateChange?()
+    }
+
+    /// The current foreground app (bundle id + display name) for the per-app
+    /// disable menu, or nil when it's unknown or TypeFix itself.
+    var frontmostApp: (bundleID: String, name: String)? {
+        guard let bundleID = frontmostBundleID else { return nil }
+        return (bundleID, frontmostAppName ?? bundleID)
+    }
+
+    var isFrontmostAppDisabled: Bool {
+        settings.isDisabled(bundleID: frontmostBundleID)
+    }
+
+    func toggleDisabledForFrontmostApp() {
+        guard let bundleID = frontmostBundleID else { return }
+        if settings.isDisabled(bundleID: bundleID) {
+            settings.enableApp(bundleID: bundleID)
+        } else {
+            settings.disableApp(bundleID: bundleID, name: frontmostAppName ?? bundleID)
+        }
+        if !isArmed { resetPending() }
+        onStateChange?()
+    }
+
+    private func handleAppActivation(_ note: Notification) {
+        let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+        guard let bundleID = app?.bundleIdentifier,
+              bundleID != Bundle.main.bundleIdentifier else { return }
+        frontmostBundleID = bundleID
+        frontmostAppName = app?.localizedName
+        // Switching into a disabled app (or any change while unarmed) drops any
+        // pending capture so a queued fix can't fire into it.
+        if !isArmed { resetPending() }
+        onStateChange?()
+    }
 
     @discardableResult
     func start() -> Bool { tap.start() }
@@ -119,7 +200,11 @@ final class CorrectionEngine {
     private func shouldCapture() -> Bool {
         guard isArmed else { return false }
         switch mode {
-        case .manual: return state == .capturing
+        // Also observe input while a manual fix is processing so a cursor move or
+        // fresh keystroke during the LLM wait can abort it (the delete position
+        // would otherwise be wrong). Those events only invalidate; they aren't
+        // buffered (see invalidatePendingManualInput).
+        case .manual: return state == .capturing || state == .processing
         case .auto: return true
         }
     }
@@ -135,11 +220,21 @@ final class CorrectionEngine {
         idleTimer = nil
         manualBuffer = ""
         autoBuffer = ""
+        generation &+= 1 // stale-out any in-flight LLM call / replacement
         if state == .processing {
             typedDuringProcessing = true // abort any in-flight replacement
         } else {
             setState(.idle)
         }
+    }
+
+    /// In manual mode, real input while a fix is processing invalidates it (the
+    /// delete position is about to be wrong). Returns true when the event was
+    /// consumed as an invalidation so the caller should not buffer it.
+    private func invalidatePendingManualInput() -> Bool {
+        guard mode == .manual, state == .processing else { return false }
+        typedDuringProcessing = true
+        return true
     }
 
     private func syncModeIfNeeded() {
@@ -181,6 +276,7 @@ final class CorrectionEngine {
     private func handleCharacters(_ characters: String) {
         syncModeIfNeeded()
         guard isArmed else { return }
+        if invalidatePendingManualInput() { return }
         switch mode {
         case .manual:
             guard state == .capturing else { return }
@@ -206,6 +302,7 @@ final class CorrectionEngine {
     private func applyDeletion(_ transform: (String) -> String) {
         syncModeIfNeeded()
         guard isArmed else { return }
+        if invalidatePendingManualInput() { return }
         switch mode {
         case .manual:
             guard state == .capturing else { return }
@@ -250,6 +347,7 @@ final class CorrectionEngine {
     private func handleEnter() {
         syncModeIfNeeded()
         guard isArmed else { return }
+        if invalidatePendingManualInput() { return }
         switch mode {
         case .manual:
             guard state == .capturing else { return }
@@ -263,6 +361,7 @@ final class CorrectionEngine {
     private func handleTab() {
         syncModeIfNeeded()
         guard isArmed else { return }
+        if invalidatePendingManualInput() { return }
         switch mode {
         case .manual:
             guard state == .capturing else { return }
@@ -275,6 +374,7 @@ final class CorrectionEngine {
     private func handleEscape() {
         syncModeIfNeeded()
         guard isArmed else { return }
+        if invalidatePendingManualInput() { return }
         switch mode {
         case .manual:
             guard state == .capturing else { return }
@@ -288,6 +388,7 @@ final class CorrectionEngine {
     private func handleNavigation() {
         syncModeIfNeeded()
         guard isArmed else { return }
+        if invalidatePendingManualInput() { return }
         switch mode {
         case .manual:
             // Cursor moved; the delete-count assumption is broken. Cancel safely.
@@ -306,6 +407,7 @@ final class CorrectionEngine {
         idleTimer?.invalidate()
         idleTimer = nil
         autoBuffer = ""
+        generation &+= 1 // stale-out any in-flight LLM call / replacement
         if state == .processing {
             typedDuringProcessing = true
         } else {
@@ -359,13 +461,7 @@ final class CorrectionEngine {
             if self.typedDuringProcessing {
                 // The user kept typing or moved the cursor while we waited.
                 // Discard this result; re-correct the (now larger) buffer later.
-                if self.autoBuffer.isEmpty {
-                    self.setState(.idle)
-                } else {
-                    self.setState(.capturing)
-                    self.scheduleIdle()
-                    self.onAutoCountdown?(self.settings.autoDelay)
-                }
+                self.resumeAutoAfterDiscard()
             } else if corrected == text {
                 // Already correct, so don't erase and retype; just acknowledge.
                 self.onNoChange?(text)
@@ -373,14 +469,48 @@ final class CorrectionEngine {
                 self.setState(.idle)
             } else {
                 let appName = NSWorkspace.shared.frontmostApplication?.localizedName
-                TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
-                self.revertable = (original: text, corrected: corrected)
-                self.onCorrectionApplied?(
-                    CorrectionRecord(original: text, corrected: corrected, appName: appName)
-                )
                 self.autoBuffer = ""
-                self.setState(.idle)
+                // Stay in .processing while the synthetic backspaces + paste run so
+                // we don't capture or act on keystrokes mid-replacement.
+                let gen = self.generation
+                TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected) { [weak self] in
+                    self?.finishAutoReplacement(
+                        original: text, corrected: corrected, appName: appName, gen: gen
+                    )
+                }
             }
+        }
+    }
+
+    /// Auto mode: the pending fix was discarded (user typed/moved while we
+    /// waited). Resume capturing the now-larger buffer, or go idle if empty.
+    private func resumeAutoAfterDiscard() {
+        if autoBuffer.isEmpty {
+            setState(.idle)
+        } else {
+            setState(.capturing)
+            scheduleIdle()
+            onAutoCountdown?(settings.autoDelay)
+        }
+    }
+
+    /// Auto mode: runs on the main thread once the paste finishes. Records the
+    /// correction and offers an in-place revert only if nothing invalidated it
+    /// while the synthetic keystrokes were running.
+    private func finishAutoReplacement(original: String, corrected: String, appName: String?, gen: Int) {
+        if !typedDuringProcessing, gen == generation {
+            revertable = (original: original, corrected: corrected)
+        }
+        onCorrectionApplied?(
+            CorrectionRecord(original: original, corrected: corrected, appName: appName)
+        )
+        // If the user typed during the paste, pick that up for the next fix.
+        if !autoBuffer.isEmpty, mode == .auto {
+            setState(.capturing)
+            scheduleIdle()
+            onAutoCountdown?(settings.autoDelay)
+        } else {
+            setState(.idle)
         }
     }
 
@@ -401,20 +531,33 @@ final class CorrectionEngine {
             return
         }
 
+        typedDuringProcessing = false
         setState(.processing)
         runCorrection(text: text) { [weak self] corrected in
             guard let self else { return }
+            if self.typedDuringProcessing {
+                // The cursor moved or the user typed during the wait; applying now
+                // would delete the wrong text. Abandon this fix.
+                self.setState(.idle)
+                return
+            }
             if corrected == text {
                 self.onNoChange?(text)
+                self.setState(.idle)
             } else {
                 let appName = NSWorkspace.shared.frontmostApplication?.localizedName
-                TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected)
-                self.revertable = (original: text, corrected: corrected)
-                self.onCorrectionApplied?(
-                    CorrectionRecord(original: text, corrected: corrected, appName: appName)
-                )
+                let gen = self.generation
+                TextReplacer.shared.replace(deleteCount: deleteCount, with: corrected) { [weak self] in
+                    guard let self else { return }
+                    if !self.typedDuringProcessing, gen == self.generation {
+                        self.revertable = (original: text, corrected: corrected)
+                    }
+                    self.onCorrectionApplied?(
+                        CorrectionRecord(original: text, corrected: corrected, appName: appName)
+                    )
+                    self.setState(.idle)
+                }
             }
-            self.setState(.idle)
         }
     }
 
@@ -454,30 +597,51 @@ final class CorrectionEngine {
             return
         }
         revertable = nil
+        typedDuringProcessing = false
         setState(.processing)
 
         runCorrection(text: original) { [weak self] corrected in
             guard let self else { return }
+            if self.typedDuringProcessing {
+                // Focus or the selection changed while we waited; replacing now
+                // could clobber the wrong text. Abandon and restore the clipboard.
+                if let restoreClipboard { self.restorePasteboard(restoreClipboard) }
+                self.setState(.idle)
+                return
+            }
             if corrected == original {
                 self.onNoChange?(original)
                 if let restoreClipboard { self.restorePasteboard(restoreClipboard) }
-            } else {
-                let replacedViaAX = selection.map {
-                    AccessibilityText.replaceSelection(in: $0.element, with: corrected)
-                } ?? false
-                if replacedViaAX {
-                    if let restoreClipboard { self.restorePasteboard(restoreClipboard) }
-                } else {
-                    // Paste over the still-active selection (works in Cursor etc.).
-                    TextReplacer.shared.replaceSelectionByPasting(corrected, restoreClipboard: restoreClipboard)
-                }
+                self.setState(.idle)
+                return
+            }
+            let appName = NSWorkspace.shared.frontmostApplication?.localizedName
+            let replacedViaAX = selection.map {
+                AccessibilityText.replaceSelection(in: $0.element, with: corrected)
+            } ?? false
+            if replacedViaAX {
+                if let restoreClipboard { self.restorePasteboard(restoreClipboard) }
                 self.revertable = (original: original, corrected: corrected)
-                let appName = NSWorkspace.shared.frontmostApplication?.localizedName
                 self.onCorrectionApplied?(
                     CorrectionRecord(original: original, corrected: corrected, appName: appName)
                 )
+                self.setState(.idle)
+            } else {
+                // Paste over the still-active selection (works in Cursor etc.).
+                let gen = self.generation
+                TextReplacer.shared.replaceSelectionByPasting(
+                    corrected, restoreClipboard: restoreClipboard
+                ) { [weak self] in
+                    guard let self else { return }
+                    if !self.typedDuringProcessing, gen == self.generation {
+                        self.revertable = (original: original, corrected: corrected)
+                    }
+                    self.onCorrectionApplied?(
+                        CorrectionRecord(original: original, corrected: corrected, appName: appName)
+                    )
+                    self.setState(.idle)
+                }
             }
-            self.setState(.idle)
         }
     }
 
@@ -494,6 +658,7 @@ final class CorrectionEngine {
         let autoFixTypos = settings.autoFixResidualTypos
         let protectedWords = settings.protectedWords
         let prompt = CorrectionText.composedPrompt(protectedWords: protectedWords)
+        let gen = generation
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -503,9 +668,21 @@ final class CorrectionEngine {
                 if autoFixTypos {
                     corrected = TypoChecker.autoFixed(corrected, allowing: protectedWords)
                 }
-                await MainActor.run { onSuccess(corrected) }
+                await MainActor.run {
+                    guard gen == self.generation else {
+                        // A hard reset happened while we waited; its initiator
+                        // already cleared the buffers, so just settle the state.
+                        if self.state == .processing { self.setState(.idle) }
+                        return
+                    }
+                    onSuccess(corrected)
+                }
             } catch {
                 await MainActor.run {
+                    guard gen == self.generation else {
+                        if self.state == .processing { self.setState(.idle) }
+                        return
+                    }
                     self.autoBuffer = "" // avoid retry storms on a bad key/model
                     self.setState(.idle)
                     let message = (error as? CorrectorError)?.message ?? error.localizedDescription

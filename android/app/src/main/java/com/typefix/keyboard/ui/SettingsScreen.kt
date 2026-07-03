@@ -78,6 +78,7 @@ fun SettingsScreen() {
         ) {
             SetupCard(context)
             UpdatesCard(context)
+            AvailabilityCard(settings, snapshot)
             ProviderCard(settings, snapshot.provider)
             if (snapshot.provider.isLocal) {
                 LocalModelCard(context, settings, snapshot.localModelId)
@@ -262,6 +263,33 @@ private fun openUrl(context: Context, url: String) {
         Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     )
+}
+
+@Composable
+private fun AvailabilityCard(settings: AppSettings, snapshot: SettingsSnapshot) {
+    SectionCard("TypeFix on/off") {
+        ToggleRow("Pause TypeFix everywhere", snapshot.paused) { settings.paused = it }
+        Text(
+            "Pausing keeps the keyboard working but turns off everything that sends text " +
+                "to a model (corrections, tone check, emoji/GIF and voice AI). Offline " +
+                "autocorrect, suggestions, and swipe keep working. You can also pause or " +
+                "disable per-app by holding the \u2699 key on the keyboard.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (snapshot.disabledApps.isNotEmpty()) {
+            HorizontalDivider()
+            Text("Disabled in these apps", style = MaterialTheme.typography.labelLarge)
+            snapshot.disabledApps.forEach { app ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(app.label, Modifier.weight(1f))
+                    IconButton(onClick = { settings.enableApp(app.packageName) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Re-enable TypeFix in ${app.label}")
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

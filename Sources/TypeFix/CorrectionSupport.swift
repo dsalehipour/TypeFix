@@ -56,6 +56,7 @@ enum PlatformInfo {
 /// Shared prompt and output-normalization used by every backend so cloud and
 /// local providers produce consistent results.
 enum CorrectionText {
+    // PROMPT-GEN:BEGIN (generated from prompt/system-prompt.txt by scripts/sync_prompt.py — do not edit by hand)
     static let systemPrompt = """
     You fix typing mistakes. Output the same text with every typo fixed: same words, same meaning, same order. Output ONLY the corrected text, nothing else.
 
@@ -82,6 +83,7 @@ enum CorrectionText {
     Input: are we still on four lunch tomorow
     Output: Are we still on for lunch tomorrow?
     """
+    // PROMPT-GEN:END
 
     /// The system prompt plus an instruction to never alter the user's protected
     /// words/names (their personal dictionary).

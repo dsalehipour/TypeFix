@@ -589,6 +589,35 @@ struct SettingsView: View {
             }
 
             card {
+                sectionLabel("Where TypeFix Runs")
+                caption("Apps where TypeFix stays off. Add one from the menu bar (\u{201C}Disable in \u{2026}\u{201D}) while you're using that app; you can also pause TypeFix everywhere from the menu bar.")
+                if settings.disabledApps.isEmpty {
+                    caption("Not disabled in any apps.")
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(settings.disabledApps) { app in
+                            HStack {
+                                Image(systemName: "nosign")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 18)
+                                Text(app.name)
+                                Spacer(minLength: 8)
+                                Button { settings.enableApp(bundleID: app.bundleID) } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.callout)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.secondary)
+                                .help("Re-enable TypeFix in \(app.name)")
+                            }
+                            .padding(.vertical, 7)
+                            if app.id != settings.disabledApps.last?.id { Divider() }
+                        }
+                    }
+                }
+            }
+
+            card {
                 sectionLabel("Safety Net")
                 Toggle("Spell-check after correcting", isOn: Binding(
                     get: { settings.spellCheckAfterCorrection },

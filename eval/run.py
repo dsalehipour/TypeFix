@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Eval harness for the TypeFix correction prompt.
 
-Extracts the live system prompt from CorrectionSupport.swift (single source of
-truth), runs every case in cases.json against the Anthropic API, and grades the
-output against the expected correction (case/punctuation-insensitive so we judge
-whether the WORDS are right, not exact formatting).
+Reads the canonical system prompt from prompt/system-prompt.txt (the single
+source of truth shared by the macOS and Android apps), runs every case in
+cases.json against the Anthropic API, and grades the output against the expected
+correction (case/punctuation-insensitive so we judge whether the WORDS are
+right, not exact formatting).
 
 Usage:
   ANTHROPIC_API_KEY=... python3 eval/run.py
@@ -19,7 +20,7 @@ import concurrent.futures
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-SWIFT = os.path.join(ROOT, "Sources", "TypeFix", "CorrectionSupport.swift")
+PROMPT_TXT = os.path.join(ROOT, "prompt", "system-prompt.txt")
 
 KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 MODEL = os.environ.get("MODEL", "claude-sonnet-4-6")
@@ -27,15 +28,11 @@ WORKERS = int(os.environ.get("WORKERS", "8"))
 
 
 def load_prompt():
-    src = open(SWIFT, encoding="utf-8").read()
-    m = re.search(r'systemPrompt = """\n(.*?)\n    """', src, re.S)
-    if not m:
-        sys.exit("Could not find systemPrompt in CorrectionSupport.swift")
-    block = m.group(1)
-    lines = [ln[4:] if ln.startswith("    ") else ln for ln in block.split("\n")]
-    text = "\n".join(lines)
-    text = re.sub(r"\\\n", "", text)  # apply Swift line-continuation
-    return text
+    try:
+        with open(PROMPT_TXT, encoding="utf-8") as f:
+            return f.read().rstrip("\n")
+    except OSError as e:
+        sys.exit(f"Could not read {PROMPT_TXT}: {e}")
 
 
 PROMPT = load_prompt()

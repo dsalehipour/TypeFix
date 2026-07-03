@@ -26,6 +26,13 @@ SIGN_IDENTITY="TypeFix Self-Signed"
 SIGN_KEYCHAIN="typefix-signing.keychain-db"
 SIGN_KEYCHAIN_PASS="typefix"
 
+# Keep the correction prompt in sync with prompt/system-prompt.txt (single source
+# of truth shared with the Android app). No-op when already up to date.
+if command -v python3 >/dev/null 2>&1; then
+    echo "==> Syncing correction prompt from prompt/system-prompt.txt…"
+    python3 scripts/sync_prompt.py
+fi
+
 echo "==> Building ($XCCONFIG) with xcodebuild (compiles MLX Metal shaders)…"
 xcodebuild \
     -scheme "$BIN_NAME" \

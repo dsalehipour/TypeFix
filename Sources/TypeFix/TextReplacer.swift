@@ -26,7 +26,11 @@ final class TextReplacer {
         static let v: CGKeyCode = 9
     }
 
-    func replace(deleteCount: Int, with text: String) {
+    /// Replaces `deleteCount` characters with `text`. `completion` runs on the
+    /// main thread once the synthetic backspaces + paste + clipboard restore have
+    /// finished, so the engine can hold its "processing" state until then instead
+    /// of racing the user's next keystroke.
+    func replace(deleteCount: Int, with text: String, completion: (() -> Void)? = nil) {
         queue.async {
             let pasteboard = NSPasteboard.general
             let previousString = pasteboard.string(forType: .string)
@@ -57,6 +61,10 @@ final class TextReplacer {
                     pasteboard.setString(previousString, forType: .string)
                 }
             }
+
+            if let completion {
+                DispatchQueue.main.async(execute: completion)
+            }
         }
     }
 
@@ -64,7 +72,11 @@ final class TextReplacer {
     /// replaced by the paste). Restores `restoreClipboard` when provided (the
     /// user's clipboard from before we copied the selection), otherwise restores
     /// whatever was on the clipboard before this call.
-    func replaceSelectionByPasting(_ text: String, restoreClipboard: String?) {
+    func replaceSelectionByPasting(
+        _ text: String,
+        restoreClipboard: String?,
+        completion: (() -> Void)? = nil
+    ) {
         queue.async {
             let pasteboard = NSPasteboard.general
             let toRestore = restoreClipboard ?? pasteboard.string(forType: .string)
@@ -83,6 +95,10 @@ final class TextReplacer {
                 if let toRestore {
                     pasteboard.setString(toRestore, forType: .string)
                 }
+            }
+
+            if let completion {
+                DispatchQueue.main.async(execute: completion)
             }
         }
     }

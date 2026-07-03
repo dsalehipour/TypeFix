@@ -7,6 +7,7 @@ package com.typefix.keyboard.correction
  */
 object CorrectionText {
 
+    // PROMPT-GEN:BEGIN (generated from prompt/system-prompt.txt by scripts/sync_prompt.py — do not edit by hand)
     val systemPrompt: String = """
         You fix typing mistakes. Output the same text with every typo fixed: same words, same meaning, same order. Output ONLY the corrected text, nothing else.
 
@@ -33,6 +34,7 @@ object CorrectionText {
         Input: are we still on four lunch tomorow
         Output: Are we still on for lunch tomorrow?
     """.trimIndent()
+    // PROMPT-GEN:END
 
     /** System prompt plus the user's protected-words instruction. */
     fun composedPrompt(protectedWords: List<String>): String {

@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let noticeSeparator = NSMenuItem.separator()
     private let toggleCaptureItem = NSMenuItem(title: "", action: #selector(toggleCapture), keyEquivalent: "")
     private let autoModeItem = NSMenuItem(title: "Enable Autofix", action: #selector(toggleAutoMode), keyEquivalent: "")
+    private let pauseItem = NSMenuItem(title: "Pause TypeFix", action: #selector(togglePause), keyEquivalent: "")
+    private let disableAppItem = NSMenuItem(title: "Disable in this app", action: #selector(toggleDisableApp), keyEquivalent: "")
     private let copyLastItem = NSMenuItem(title: "Copy last original", action: #selector(copyLastOriginal), keyEquivalent: "")
     private let undoFixItem = NSMenuItem(title: "Undo last fix", action: #selector(undoLastFix), keyEquivalent: "")
 
@@ -155,6 +157,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        pauseItem.target = self
+        menu.addItem(pauseItem)
+
+        disableAppItem.target = self
+        menu.addItem(disableAppItem)
+
+        menu.addItem(.separator())
+
         copyLastItem.target = self
         copyLastItem.image = menuSymbol("doc.on.doc")
         copyLastItem.keyEquivalent = "c"
@@ -258,7 +268,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Menu-bar icon reflects the live state. At rest it shows the TypeFix
         // brand mark (caret + sparkle); transient states use status symbols.
         if let button = statusItem.button {
-            if trusted, engine.state == .idle {
+            if trusted, !engine.isArmed {
+                // Paused or disabled in the current app.
+                let paused = NSImage(systemSymbolName: "pause.circle", accessibilityDescription: "TypeFix paused")
+                paused?.isTemplate = true
+                button.image = paused
+            } else if trusted, engine.state == .idle {
                 button.image = Self.brandGlyph()
             } else {
                 let symbol: String
@@ -276,10 +291,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
-        // A small notice only when setup is incomplete; otherwise the menu is clean.
+        // A small notice only when setup is incomplete or TypeFix is off; otherwise
+        // the menu is clean.
         let notice: String?
         if !trusted {
             notice = "Grant Accessibility to start →"
+        } else if engine.isPaused {
+            notice = "Paused"
+        } else if engine.isFrontmostAppDisabled, let app = engine.frontmostApp {
+            notice = "Off in \(app.name)"
         } else {
             switch settings.backendReadiness {
             case .ready:
@@ -324,11 +344,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         toggleCaptureItem.isEnabled = trusted
 
+        pauseItem.title = engine.isPaused ? "Resume TypeFix" : "Pause TypeFix"
+        pauseItem.image = menuSymbol(engine.isPaused ? "play.circle" : "pause.circle")
+        pauseItem.isEnabled = trusted
+
+        if let app = engine.frontmostApp {
+            let disabled = engine.isFrontmostAppDisabled
+            disableAppItem.isHidden = false
+            disableAppItem.title = disabled ? "Enable in \(app.name)" : "Disable in \(app.name)"
+            disableAppItem.image = menuSymbol(disabled ? "checkmark.circle" : "nosign")
+            disableAppItem.isEnabled = trusted && !engine.isPaused
+        } else {
+            disableAppItem.isHidden = true
+        }
+
         copyLastItem.isEnabled = !history.records.isEmpty
         undoFixItem.isEnabled = engine.canRevert()
 
         hud.hotkeySymbol = sym
-        hud.update(state: engine.state, mode: engine.mode, armed: true, trusted: trusted)
+        hud.update(state: engine.state, mode: engine.mode, armed: engine.isArmed, trusted: trusted)
     }
 
     // MARK: - Permission flow
@@ -364,6 +398,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleAutoMode() {
         engine.setMode(engine.mode == .auto ? .manual : .auto)
+    }
+
+    @objc private func togglePause() {
+        engine.setPaused(!engine.isPaused)
+    }
+
+    @objc private func toggleDisableApp() {
+        engine.toggleDisabledForFrontmostApp()
     }
 
     @objc private func copyLastOriginal() {

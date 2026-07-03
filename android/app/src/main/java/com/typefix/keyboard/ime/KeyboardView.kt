@@ -57,6 +57,14 @@ interface KeyboardListener {
     fun onMic()
     fun onHideKeyboard()
     fun onToggleAutoMode()
+    /** Toggle the global pause (turns model features off/on everywhere). */
+    fun onTogglePause()
+    /** Toggle whether TypeFix is disabled in the current app. */
+    fun onToggleDisableApp()
+    fun isTypeFixPaused(): Boolean
+    fun isCurrentAppDisabled(): Boolean
+    /** A friendly label for the current app, for the "Disable in …" row. */
+    fun currentAppLabel(): String
     fun onCancelFix()
     fun onToneFix()
     /** Move the text caret by [steps] (negative = left) — space-bar trackpad. */
@@ -195,8 +203,10 @@ class KeyboardView(
     private var countdownAnimator: ValueAnimator? = null
 
     private var autoModeOn = false
+    private var typeFixOff = false
     private var sparkleIcon: ImageView? = null
     private var sparkleDot: View? = null
+    private var quickMenuPopup: PopupWindow? = null
     private var holdPopup: PopupWindow? = null
     private var holdView: HoldProgressView? = null
     private var holdAnimator: ValueAnimator? = null
@@ -621,14 +631,107 @@ class KeyboardView(
             handleHoldTouch(
                 icon, e,
                 holdGlyph = "\u2699",
-                holdCaption = "Hold for Auto…",
-                doneGlyph = "\u2713",
-                doneCaption = { if (autoModeOn) "Auto OFF" else "Auto ON" },
+                holdCaption = "Hold for options…",
+                doneGlyph = "\u2630",
+                doneCaption = { "Options" },
                 onTap = { listener.onOpenSettings() },
-                onComplete = { listener.onToggleAutoMode() },
+                onComplete = {
+                    dismissHoldPopup()
+                    showSettingsQuickMenu(icon)
+                },
             )
         }
         return icon
+    }
+
+    /** The press-and-hold menu on the ⚙ key: Auto-fix, Pause, and per-app disable.
+     *  A quick tap still opens full Settings. */
+    private fun showSettingsQuickMenu(anchor: View) {
+        dismissQuickMenu()
+        val container = LinearLayout(context).apply {
+            orientation = VERTICAL
+            background = popupBg()
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+        }
+
+        fun row(glyph: String, label: String, onClick: () -> Unit) {
+            val r = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = drawable(R.drawable.key_flat_bg)
+                setPadding(dp(12), dp(11), dp(20), dp(11))
+                isClickable = true
+                addView(TextView(context).apply {
+                    text = glyph
+                    setTextColor(colText)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                    width = dp(30)
+                    gravity = Gravity.CENTER
+                })
+                addView(TextView(context).apply {
+                    text = label
+                    setTextColor(colText)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    isSingleLine = true
+                })
+                setOnClickListener {
+                    Haptics.tick(context, 8, 90)
+                    onClick()
+                    dismissQuickMenu()
+                }
+            }
+            container.addView(
+                r,
+                LinearLayout.LayoutParams(MATCH, WRAP).apply {
+                    topMargin = dp(2); bottomMargin = dp(2)
+                },
+            )
+        }
+
+        row("\u2728", if (autoModeOn) "Turn off Auto-fix" else "Turn on Auto-fix") {
+            listener.onToggleAutoMode()
+        }
+        row(if (listener.isTypeFixPaused()) "\u25B6" else "\u23F8", if (listener.isTypeFixPaused()) "Resume TypeFix" else "Pause TypeFix") {
+            listener.onTogglePause()
+        }
+        val appLabel = listener.currentAppLabel()
+        row("\u2298", if (listener.isCurrentAppDisabled()) "Enable in $appLabel" else "Disable in $appLabel") {
+            listener.onToggleDisableApp()
+        }
+
+        // NOT focusable: a focusable popup steals focus from the edited field and
+        // the system hides the IME (same as the accent/alternates popup).
+        container.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        val w = container.measuredWidth.coerceAtLeast(dp(200))
+        val h = container.measuredHeight
+        val popup = PopupWindow(container, w, h, false).apply {
+            isClippingEnabled = false
+            isTouchable = true
+            isOutsideTouchable = true
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = dp(10).toFloat()
+            setOnDismissListener { quickMenuPopup = null }
+        }
+        quickMenuPopup = popup
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        val margin = dp(6)
+        val rootLoc = IntArray(2)
+        getLocationOnScreen(rootLoc)
+        // Right-align to the ⚙ key, above it, clamped to the keyboard's width.
+        var x = loc[0] + anchor.width - w
+        x = x.coerceIn(rootLoc[0] + margin, (rootLoc[0] + width - w - margin).coerceAtLeast(rootLoc[0] + margin))
+        var y = loc[1] - h - dp(8)
+        if (y < dp(8)) y = loc[1] + anchor.height + dp(8) // fall below if no room above
+        popup.showAtLocation(this, Gravity.NO_GRAVITY, x, y)
+    }
+
+    private fun dismissQuickMenu() {
+        quickMenuPopup?.dismiss()
+        quickMenuPopup = null
     }
 
     /** Tapping a toolbar icon opens its panel; tapping it again closes it. */
@@ -826,9 +929,18 @@ class KeyboardView(
     /** Reflects whether Auto mode is on (dot + subtle active background on ✨). */
     fun setAutoModeIndicator(enabled: Boolean) {
         autoModeOn = enabled
-        sparkleDot?.visibility = if (enabled) VISIBLE else GONE
+        sparkleDot?.visibility = if (enabled && !typeFixOff) VISIBLE else GONE
         sparkleIcon?.background = drawable(if (enabled) R.drawable.key_func_active_bg else R.drawable.key_flat_bg)
         if (!enabled) cancelAutoCountdown()
+    }
+
+    /** Dims the ✨ key while TypeFix is paused or off in the current app, so the
+     *  off state is always visible. */
+    fun setTypeFixOff(off: Boolean) {
+        typeFixOff = off
+        sparkleIcon?.alpha = if (off) 0.4f else 1f
+        sparkleDot?.visibility = if (autoModeOn && !off) VISIBLE else GONE
+        if (off) cancelAutoCountdown()
     }
 
     /** A subtle accent line that fills across [durationMs] before an auto fix. */

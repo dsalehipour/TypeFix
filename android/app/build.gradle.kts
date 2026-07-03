@@ -28,8 +28,8 @@ android {
         applicationId = "com.typefix.keyboard"
         minSdk = 28
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.1.19"
+        versionCode = 21
+        versionName = "0.1.20"
         buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
         // Where the in-app updater looks for new releases.
         buildConfigField("String", "GITHUB_OWNER", "\"dsalehipour\"")
@@ -85,6 +85,27 @@ kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
+}
+
+// Keep the correction prompt (CorrectionText.kt) in sync with the shared
+// prompt/system-prompt.txt before every build, so the Android and macOS prompts
+// can never drift. No-op when already up to date; skipped if python3 or the
+// script is unavailable (e.g. CI images without Python).
+val syncPrompt by tasks.registering(Exec::class) {
+    val script = rootProject.file("../scripts/sync_prompt.py")
+    val python = listOf("python3", "python").firstOrNull { exe ->
+        runCatching {
+            ProcessBuilder(exe, "--version").redirectErrorStream(true).start().waitFor() == 0
+        }.getOrDefault(false)
+    }
+    onlyIf { script.exists() && python != null }
+    workingDir = rootProject.file("..")
+    isIgnoreExitValue = true
+    commandLine(python ?: "python3", script.absolutePath)
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncPrompt)
 }
 
 dependencies {

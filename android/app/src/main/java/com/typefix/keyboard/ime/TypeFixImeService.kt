@@ -1,6 +1,7 @@
 package com.typefix.keyboard.ime
 
 import android.Manifest
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -130,9 +131,15 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     /** Records the current clip into history when readable (keyboard shown / on copy). */
     private fun captureClipboard() {
+        val clip = runCatching { clipboardManager.primaryClip }.getOrNull()
+        // Password managers and Android autofill flag copied secrets as sensitive;
+        // never record those into history or offer them as a "tap to paste" chip.
+        if (clip == null || isSensitiveClip(clip.description)) {
+            refreshClipSuggestion()
+            return
+        }
         val text = runCatching {
-            clipboardManager.primaryClip?.takeIf { it.itemCount > 0 }
-                ?.getItemAt(0)?.coerceToText(this)?.toString()
+            clip.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
         }.getOrNull()
         ClipboardHistory.add(applicationContext, text)
         val trimmed = text?.trim().orEmpty()
@@ -144,6 +151,12 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         }
         refreshClipSuggestion()
     }
+
+    /** True when a clip is flagged sensitive (via the standard IS_SENSITIVE extra,
+     *  set by password managers / autofill) so we keep it out of history. The raw
+     *  string key works on all API levels; the constant only exists on API 33+. */
+    private fun isSensitiveClip(description: ClipDescription?): Boolean =
+        description?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true
 
     /**
      * Shows or hides the "tap to paste" chip. We only offer it while the field is
@@ -201,6 +214,14 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         return view
     }
 
+    override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(info, restarting)
+        // Set the secure flag as early as possible (onStartInput fires before
+        // onStartInputView) so no LLM path can read a stale value, and refresh it
+        // in case an app swapped inputType on the same open field.
+        isSecureField = info != null && isPasswordField(info)
+    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         isSecureField = info != null && isPasswordField(info)
@@ -235,6 +256,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         }
 
         keyboard?.setAutoModeIndicator(s.correctionMode == CorrectionMode.AUTO)
+        refreshTypeFixOffIndicator()
         // Show the action buttons immediately — no transient hint text on open.
         refreshAutoCaps()
     }
@@ -606,10 +628,14 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     /** When tone check is on, flag the draft's tone a moment after you pause typing. */
     private fun scheduleToneCheck() {
         val s = settings.snapshot()
-        if (!s.toneCheckEnabled || isSecureField) return
+        if (!s.toneCheckEnabled || llmBlocked()) return
         toneJob?.cancel()
         toneJob = scope.launch {
             delay(1300)
+            // Re-check after the debounce: the field can turn into a password field
+            // (or TypeFix can be paused / the app disabled) while we waited, and
+            // tone check sends the draft to a model.
+            if (llmBlocked()) return@launch
             val before = currentInputConnection?.getTextBeforeCursor(MAX_CONTEXT, 0)?.toString() ?: return@launch
             val target = before.substringAfterLast('\n').trim()
             if (target.length < 12) return@launch
@@ -681,6 +707,41 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         }
     }
 
+    override fun isTypeFixPaused(): Boolean = settings.snapshot().paused
+
+    override fun isCurrentAppDisabled(): Boolean = settings.isAppDisabled(currentPackage())
+
+    override fun currentAppLabel(): String = resolveCurrentAppLabel()
+
+    override fun onTogglePause() {
+        val nowPaused = !settings.snapshot().paused
+        settings.paused = nowPaused
+        if (nowPaused) stopModelWork()
+        refreshTypeFixOffIndicator()
+        keyboard?.flash(if (nowPaused) "TypeFix paused" else "TypeFix resumed", if (nowPaused) orange else green)
+    }
+
+    override fun onToggleDisableApp() {
+        val pkg = currentPackage() ?: return
+        val label = resolveCurrentAppLabel()
+        val wasDisabled = settings.isAppDisabled(pkg)
+        if (wasDisabled) {
+            settings.enableApp(pkg)
+        } else {
+            settings.disableApp(pkg, label)
+            stopModelWork()
+        }
+        refreshTypeFixOffIndicator()
+        keyboard?.flash(if (wasDisabled) "On in $label" else "Off in $label", if (wasDisabled) green else orange)
+    }
+
+    /** Cancel any in-flight or pending model work (used when turning TypeFix off). */
+    private fun stopModelWork() {
+        autoJob?.cancel()
+        cancelInFlightFix()
+        keyboard?.cancelAutoCountdown()
+    }
+
     /** The recent bit of what the user is writing, used to seed emoji/GIF context.
      *  Scoped to the current line and the last couple of sentences so suggestions
      *  reflect the current thought instead of reaching back across the whole draft. */
@@ -697,9 +758,16 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onEmojiPanelShown() {
-        val text = recentMessageContext()
         val s = settings.snapshot()
         emojiSuggestJob?.cancel()
+        // When corrections are blocked (password field, paused, or app disabled),
+        // never read the surrounding text for an LLM — show only the generic
+        // offline popular emojis (no field content leaves).
+        if (llmBlocked()) {
+            keyboard?.setEmojiSuggestions(EmojiSuggester.suggest(""))
+            return
+        }
+        val text = recentMessageContext()
         // No model (or empty message) → just the instant offline suggestions.
         if (text.isBlank() || !Corrector.isBackendReady(applicationContext, s)) {
             keyboard?.setEmojiSuggestions(EmojiSuggester.suggest(text))
@@ -730,6 +798,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         // shimmer + the same thinking/done haptics as a correction.
         val s = settings.snapshot()
         emojiSearchJob?.cancel()
+        // When corrections are blocked, don't send anything to a model — the
+        // instant local fuzzy matches already shown are enough.
+        if (llmBlocked()) return
         if (!Corrector.isBackendReady(applicationContext, s)) return
         emojiSearchJob = scope.launch {
             delay(600)
@@ -772,9 +843,15 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             return
         }
         val s = settings.snapshot()
-        val text = recentMessageContext()
         keyboard?.setGifLoading()
         gifSuggestJob?.cancel()
+        // When corrections are blocked, never read the surrounding text for
+        // context — just show featured GIFs (manual search still works).
+        if (llmBlocked()) {
+            gifSuggestJob = scope.launch { keyboard?.setGifResults(GifClient.featured(key)) }
+            return
+        }
+        val text = recentMessageContext()
         gifSuggestJob = scope.launch {
             // Contextual suggestions like emoji: an LLM-derived query from the
             // message (with the same thinking/done haptics), then the offline vibe
@@ -916,7 +993,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
                     return
                 }
                 clearLastFix()
-                if (settings.snapshot().voiceCleanupEnabled) {
+                // Voice cleanup sends the transcript to a model — skip it when
+                // corrections are blocked (password field, paused, app disabled)
+                // and commit the raw transcript instead.
+                if (settings.snapshot().voiceCleanupEnabled && !llmBlocked()) {
                     keyboard?.setStatus("Cleaning up…", accent)
                     scope.launch {
                         val cleaned = Corrector.cleanupVoice(applicationContext, text, settings.snapshot()) ?: text
@@ -965,7 +1045,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     private fun scheduleAutoCorrection() {
         val s = settings.snapshot()
-        if (s.correctionMode != CorrectionMode.AUTO || isSecureField) {
+        if (s.correctionMode != CorrectionMode.AUTO || llmBlocked()) {
             keyboard?.cancelAutoCountdown()
             return
         }
@@ -983,8 +1063,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     private fun runCorrection(force: Boolean) {
         if (correcting) return
-        if (isSecureField) {
-            keyboard?.flash("Password field · TypeFix off", orange)
+        correctionBlockReason()?.let {
+            keyboard?.flash(it, orange)
             return
         }
         val ic = currentInputConnection ?: return
@@ -1110,6 +1190,41 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         ic.commitText(corrected, 1)
         ic.endBatchEdit()
         return true
+    }
+
+    /** The package hosting the current text field (used by per-app disable). */
+    private fun currentPackage(): String? = currentInputEditorInfo?.packageName
+
+    /** A friendly label for the current app, falling back to its package name. */
+    private fun resolveCurrentAppLabel(): String {
+        val pkg = currentPackage() ?: return "this app"
+        return runCatching {
+            val pm = packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: pkg
+    }
+
+    /** True when nothing here may be sent to a model (cloud or on-device): a
+     *  password field, a global pause, or an app on the disable list. Offline
+     *  features (autocorrect-on-space, suggestions, swipe) are unaffected. */
+    private fun llmBlocked(): Boolean {
+        if (isSecureField) return true
+        val s = settings.snapshot()
+        return s.paused || s.disabledApps.any { it.packageName == currentPackage() }
+    }
+
+    /** A user-facing reason a manual fix can't run here, or null if it can. */
+    private fun correctionBlockReason(): String? {
+        if (isSecureField) return "Password field · TypeFix off"
+        val s = settings.snapshot()
+        if (s.paused) return "TypeFix paused"
+        if (s.disabledApps.any { it.packageName == currentPackage() }) return "TypeFix off in this app"
+        return null
+    }
+
+    private fun refreshTypeFixOffIndicator() {
+        val s = settings.snapshot()
+        keyboard?.setTypeFixOff(s.paused || s.disabledApps.any { it.packageName == currentPackage() })
     }
 
     private fun isPasswordField(info: EditorInfo): Boolean {

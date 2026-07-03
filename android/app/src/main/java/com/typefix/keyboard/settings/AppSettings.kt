@@ -7,6 +7,8 @@ import com.typefix.keyboard.model.Provider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * All user-facing settings, ported from the macOS `AppSettings`.
@@ -38,6 +40,8 @@ class AppSettings private constructor(context: Context) {
         const val GIF_INTENT = "gifIntent"
         const val TONE_CHECK = "toneCheck"
         const val AUTOCORRECT_SPACE = "autocorrectOnSpace"
+        const val PAUSED = "typeFixPaused"
+        const val DISABLED_APPS = "disabledApps"
         fun apiKey(provider: Provider) = "apiKey_${provider.id}"
     }
 
@@ -143,6 +147,53 @@ class AppSettings private constructor(context: Context) {
             prefs.edit().putString(Keys.PROTECTED_WORDS, value.joinToString("\n")).apply(); publish()
         }
 
+    /** Global pause: turns off every feature that sends text to a model (cloud or
+     *  on-device). Offline autocorrect, suggestions, and swipe keep working.
+     *  Persisted, because the IME process restarts often; a visible dimmed sparkle
+     *  keeps the state obvious. */
+    var paused: Boolean
+        get() = prefs.getBoolean(Keys.PAUSED, false)
+        set(value) { prefs.edit().putBoolean(Keys.PAUSED, value).apply(); publish() }
+
+    /** Apps where TypeFix's model features are turned off (per-app disable list). */
+    var disabledApps: List<DisabledApp>
+        get() = parseDisabledApps(prefs.getString(Keys.DISABLED_APPS, null))
+        set(value) {
+            prefs.edit().putString(Keys.DISABLED_APPS, serializeDisabledApps(value)).apply(); publish()
+        }
+
+    fun isAppDisabled(packageName: String?): Boolean {
+        if (packageName.isNullOrEmpty()) return false
+        return disabledApps.any { it.packageName == packageName }
+    }
+
+    fun disableApp(packageName: String, label: String) {
+        if (packageName.isBlank()) return
+        if (disabledApps.any { it.packageName == packageName }) return
+        disabledApps = disabledApps + DisabledApp(packageName, label.ifBlank { packageName })
+    }
+
+    fun enableApp(packageName: String) {
+        disabledApps = disabledApps.filterNot { it.packageName == packageName }
+    }
+
+    private fun serializeDisabledApps(list: List<DisabledApp>): String {
+        val arr = JSONArray()
+        list.forEach { arr.put(JSONObject().put("pkg", it.packageName).put("label", it.label)) }
+        return arr.toString()
+    }
+
+    private fun parseDisabledApps(raw: String?): List<DisabledApp> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            List(arr.length()) {
+                val o = arr.getJSONObject(it)
+                DisabledApp(o.getString("pkg"), o.optString("label", o.getString("pkg")))
+            }
+        }.getOrDefault(emptyList())
+    }
+
     /** Filename of the on-device model the user downloaded/selected. */
     var localModelId: String
         get() = prefs.getString(Keys.LOCAL_MODEL_ID, "").orEmpty()
@@ -192,6 +243,8 @@ class AppSettings private constructor(context: Context) {
             gifIntentEnabled = gifIntentEnabled,
             toneCheckEnabled = toneCheckEnabled,
             autocorrectOnSpace = autocorrectOnSpace,
+            paused = paused,
+            disabledApps = disabledApps,
         )
     }
 
@@ -229,4 +282,9 @@ data class SettingsSnapshot(
     val gifIntentEnabled: Boolean,
     val toneCheckEnabled: Boolean,
     val autocorrectOnSpace: Boolean,
+    val paused: Boolean,
+    val disabledApps: List<DisabledApp>,
 )
+
+/** An app where TypeFix's model features are turned off (per-app disable list). */
+data class DisabledApp(val packageName: String, val label: String)

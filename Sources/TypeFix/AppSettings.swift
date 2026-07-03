@@ -213,6 +213,13 @@ struct ModelOption: Identifiable, Hashable {
     let label: String   // friendly description
 }
 
+/// An app where TypeFix is turned off (the per-app disable list).
+struct DisabledApp: Codable, Identifiable, Hashable {
+    let bundleID: String
+    let name: String
+    var id: String { bundleID }
+}
+
 /// Model ids that providers have since retired. If a user has one of these
 /// stored, we silently migrate them to the current default.
 private let retiredModels: Set<String> = [
@@ -241,6 +248,7 @@ final class AppSettings: ObservableObject {
         static let spellCheckAfterCorrection = "spellCheckAfterCorrection"
         static let autoFixResidualTypos = "autoFixResidualTypos"
         static let protectedWords = "protectedWords"
+        static let disabledApps = "disabledApps"
         static let didUpgradeToSonnetDefault = "didUpgradeToSonnetDefault"
     }
 
@@ -322,6 +330,20 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Apps where TypeFix is turned off entirely (per-app disable list). Persisted.
+    @Published var disabledApps: [DisabledApp] {
+        didSet {
+            if let data = try? JSONEncoder().encode(disabledApps) {
+                defaults.set(data, forKey: Keys.disabledApps)
+            }
+        }
+    }
+
+    /// Global pause. Session-only (deliberately not persisted) so quitting and
+    /// relaunching always comes back active — avoids a silent "why did it stop
+    /// working?" after a restart.
+    @Published var isPaused = false
+
     init() {
         // Default new installs to the private, on-device model on Apple Silicon
         // (it's fast and good with the current prompt); fall back to cloud elsewhere.
@@ -345,6 +367,12 @@ final class AppSettings: ObservableObject {
             self.hotkey = storedHotkey
         } else {
             self.hotkey = .bothShifts
+        }
+        if let data = defaults.data(forKey: Keys.disabledApps),
+           let storedDisabled = try? JSONDecoder().decode([DisabledApp].self, from: data) {
+            self.disabledApps = storedDisabled
+        } else {
+            self.disabledApps = []
         }
 
         // Property observers don't fire during init, so persist migrations
@@ -419,6 +447,25 @@ final class AppSettings: ObservableObject {
 
     func removeProtectedWords(_ offsets: IndexSet) {
         protectedWords.remove(atOffsets: offsets)
+    }
+
+    /// Whether TypeFix is turned off for the given app bundle id.
+    func isDisabled(bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return disabledApps.contains { $0.bundleID == bundleID }
+    }
+
+    func disableApp(bundleID: String, name: String) {
+        guard !disabledApps.contains(where: { $0.bundleID == bundleID }) else { return }
+        disabledApps.append(DisabledApp(bundleID: bundleID, name: name))
+    }
+
+    func enableApp(bundleID: String) {
+        disabledApps.removeAll { $0.bundleID == bundleID }
+    }
+
+    func removeDisabledApps(_ offsets: IndexSet) {
+        disabledApps.remove(atOffsets: offsets)
     }
 
     func makeCorrectionConfig() -> CorrectionConfig {
