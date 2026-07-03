@@ -45,6 +45,7 @@ interface KeyboardListener {
     fun onEnter()
     fun onFix()
     fun onUndo()
+    fun canUndo(): Boolean
     fun onGestureWord(word: String)
     fun onOpenSettings()
     fun onSwitchKeyboard()
@@ -201,8 +202,13 @@ class KeyboardView(
     private var holdAnimator: ValueAnimator? = null
     private var holdCancelled = false
     private var holdCompleted = false
-    private var sparkleHoldRunnable: Runnable? = null
+    private var holdRunnable: Runnable? = null
     private var nextHoldTick = 0f
+    // Config for the current press-and-hold (shared by ✨ hold-to-undo and the
+    // settings hold-to-toggle-Auto).
+    private var holdDoneGlyph: String = "\u2713"
+    private var holdDoneCaption: (() -> String)? = null
+    private var holdOnComplete: (() -> Unit)? = null
 
     private val revertStatus = Runnable { showIconsBar() }
 
@@ -594,8 +600,33 @@ class KeyboardView(
         add(toolIcon(R.drawable.ic_kb_emoji, colIcon) { togglePanel("emoji") })
         add(toolIcon(R.drawable.ic_kb_gif, colIcon) { togglePanel("gif") })
         add(toolIcon(R.drawable.ic_kb_clipboard, colIcon) { togglePanel("clipboard") })
-        // Just Settings — switching/hiding the keyboard already live in the OS bar.
-        add(toolIcon(R.drawable.ic_kb_settings, colIcon) { listener.onOpenSettings() })
+        // Tap = Settings; hold = toggle Auto mode. (Switching/hiding the keyboard
+        // already live in the OS bar.)
+        add(buildSettings())
+    }
+
+    /** ⚙ key: tap = open Settings; hold = toggle Auto mode (with the hold ring). */
+    private fun buildSettings(): View {
+        val icon = ImageView(context).apply {
+            setImageResource(R.drawable.ic_kb_settings)
+            setColorFilter(colIcon)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+            background = drawable(R.drawable.key_flat_bg)
+            isClickable = true
+        }
+        icon.setOnTouchListener { _, e ->
+            handleHoldTouch(
+                icon, e,
+                holdGlyph = "\u2699",
+                holdCaption = "Hold for Auto…",
+                doneGlyph = "\u2713",
+                doneCaption = { if (autoModeOn) "Auto OFF" else "Auto ON" },
+                onTap = { listener.onOpenSettings() },
+                onComplete = { listener.onToggleAutoMode() },
+            )
+        }
+        return icon
     }
 
     /** Tapping a toolbar icon opens its panel; tapping it again closes it. */
@@ -611,7 +642,7 @@ class KeyboardView(
         }
     }
 
-    /** ✨ key: tap = Fix now; hold 2s = toggle Auto (with a popup above the finger). */
+    /** ✨ key: tap = Fix now; hold = undo the last fix (with a popup above the finger). */
     private fun buildSparkle(): View {
         val frame = FrameLayout(context)
         val icon = ImageView(context).apply {
@@ -635,43 +666,77 @@ class KeyboardView(
             marginEnd = dp(12)
         })
 
-        frame.setOnTouchListener { _, e -> handleSparkleTouch(e) }
+        frame.setOnTouchListener { _, e ->
+            handleHoldTouch(
+                icon, e,
+                holdGlyph = "\u21B6",
+                holdCaption = "Hold to undo…",
+                doneGlyph = "\u21B6",
+                doneCaption = { if (listener.canUndo()) "Undone" else "Nothing to undo" },
+                onTap = { listener.onFix() },
+                onComplete = { listener.onUndo() },
+            )
+        }
         return frame
     }
 
-    private fun handleSparkleTouch(e: MotionEvent): Boolean {
+    /** Shared press-and-hold: a quick tap runs [onTap]; holding fills a progress
+     *  ring and runs [onComplete]. Used by ✨ (undo) and settings (toggle Auto). */
+    private fun handleHoldTouch(
+        icon: ImageView,
+        e: MotionEvent,
+        holdGlyph: String,
+        holdCaption: String,
+        doneGlyph: String,
+        doneCaption: () -> String,
+        onTap: () -> Unit,
+        onComplete: () -> Unit,
+    ): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 holdCompleted = false
                 holdCancelled = false
-                sparkleIcon?.isPressed = true
+                icon.isPressed = true
                 val rawX = e.rawX
                 val rawY = e.rawY
-                val r = Runnable { startSparkleHold(rawX, rawY) }
-                sparkleHoldRunnable = r
+                val r = Runnable {
+                    startHold(rawX, rawY, holdGlyph, holdCaption, doneGlyph, doneCaption, onComplete)
+                }
+                holdRunnable = r
                 postDelayed(r, 200)
             }
             MotionEvent.ACTION_UP -> {
-                sparkleIcon?.isPressed = false
-                sparkleHoldRunnable?.let { removeCallbacks(it) }
+                icon.isPressed = false
+                holdRunnable?.let { removeCallbacks(it) }
                 when {
-                    holdCompleted -> { /* already toggled */ }
-                    holdAnimator?.isRunning == true -> cancelSparkleHold() // released early
-                    else -> listener.onFix() // quick tap
+                    holdCompleted -> { /* already ran onComplete */ }
+                    holdAnimator?.isRunning == true -> cancelHold() // released early
+                    else -> onTap() // quick tap
                 }
             }
             MotionEvent.ACTION_CANCEL -> {
-                sparkleIcon?.isPressed = false
-                sparkleHoldRunnable?.let { removeCallbacks(it) }
-                if (!holdCompleted) cancelSparkleHold()
+                icon.isPressed = false
+                holdRunnable?.let { removeCallbacks(it) }
+                if (!holdCompleted) cancelHold()
             }
         }
         return true
     }
 
-    private fun startSparkleHold(rawX: Float, rawY: Float) {
+    private fun startHold(
+        rawX: Float,
+        rawY: Float,
+        glyph: String,
+        caption: String,
+        doneGlyph: String,
+        doneCaption: () -> String,
+        onComplete: () -> Unit,
+    ) {
         holdCancelled = false
         holdCompleted = false
+        holdDoneGlyph = doneGlyph
+        holdDoneCaption = doneCaption
+        holdOnComplete = onComplete
         val view = HoldProgressView(
             context,
             bgColor = colLetterKey,
@@ -680,8 +745,8 @@ class KeyboardView(
             textColor = colText,
             subTextColor = colTextSecondary,
         ).apply {
-            caption = "Keep holding…"
-            centerGlyph = "\u2728"
+            this.caption = caption
+            centerGlyph = glyph
             progress = 0f
         }
         holdView = view
@@ -721,30 +786,29 @@ class KeyboardView(
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    if (!holdCancelled) completeSparkleHold()
+                    if (!holdCancelled) completeHold()
                 }
             })
             start()
         }
     }
 
-    private fun completeSparkleHold() {
+    private fun completeHold() {
         holdCompleted = true
         Haptics.doubleStrong(context)
-        val turningOn = !autoModeOn
         holdView?.apply {
             progress = 1f
-            centerGlyph = "\u2713"
-            caption = if (turningOn) "Auto ON" else "Auto OFF"
+            centerGlyph = holdDoneGlyph
+            caption = holdDoneCaption?.invoke() ?: ""
             animate().scaleX(1.12f).scaleY(1.12f).setDuration(120).withEndAction {
                 animate().scaleX(1f).scaleY(1f).setDuration(120).start()
             }.start()
         }
-        listener.onToggleAutoMode()
+        holdOnComplete?.invoke()
         postDelayed({ dismissHoldPopup() }, 750)
     }
 
-    private fun cancelSparkleHold() {
+    private fun cancelHold() {
         holdCancelled = true
         holdAnimator?.cancel()
         dismissHoldPopup()
@@ -1588,16 +1652,17 @@ class KeyboardView(
             shifted = false
             applyShiftCase()
         }
-        returnToLettersAfterApostrophe(baseChar)
+        returnToLettersAfterPunct(baseChar)
     }
 
     /**
-     * Typing a single quote/apostrophe from the symbols layout flips back to the
-     * letter keyboard, because the next character (e.g. "don't", "I'm") is almost
-     * always a letter — so the common case needs zero extra taps.
+     * Typing an apostrophe, comma, or double quote from the symbols layout flips
+     * back to the letter keyboard, because what follows (e.g. "don't", ", then …",
+     * a quoted word) is almost always a letter — so the common case needs zero
+     * extra taps.
      */
-    private fun returnToLettersAfterApostrophe(baseChar: String) {
-        if (symbols && baseChar == "'") {
+    private fun returnToLettersAfterPunct(baseChar: String) {
+        if (symbols && (baseChar == "'" || baseChar == "," || baseChar == "\"")) {
             symbols = false
             symbolsPage = 0
             renderKeys()
@@ -1784,7 +1849,7 @@ class KeyboardView(
                     if (shifted && !capsLock && baseChar.length == 1 && baseChar[0] in 'a'..'z') {
                         shifted = false; applyShiftCase()
                     }
-                    returnToLettersAfterApostrophe(baseChar)
+                    returnToLettersAfterPunct(baseChar)
                     alternatesPopup?.dismiss()
                 }
             }, LinearLayout.LayoutParams(dp(40), dp(46)).apply { marginStart = dp(2); marginEnd = dp(2) })

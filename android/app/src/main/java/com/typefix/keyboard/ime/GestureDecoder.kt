@@ -53,6 +53,14 @@ object GestureDecoder {
         "wanna" to "wanna", "gonna" to "gonna",
     )
 
+    /** Fixes that depend on capitalization: only applied when the word is written
+     *  as a sentence-start capital, to disambiguate from a real lowercase word
+     *  (e.g. "Ill" -> "I'll", but leave "ill" = sick alone). */
+    private val CASED_FIXES: Map<String, String> = mapOf(
+        "Ill" to "I'll",
+        "Id" to "I'd",
+    )
+
     @Volatile
     private var words: List<String> = emptyList()
     @Volatile
@@ -131,13 +139,17 @@ object GestureDecoder {
     fun autoFix(context: Context, word: String): String? {
         ensureLoaded(context)
         ensureValidLoaded(context)
+        // Case-sensitive fixes for homographs that are only typos when capitalized
+        // like a sentence start (e.g. "Ill" -> "I'll", but leave lowercase "ill" = sick).
+        CASED_FIXES[word]?.let { return it }
         val w = word.lowercase().filter { it in 'a'..'z' }
-        if (w.isEmpty() || words.isEmpty()) return null
+        if (w.isEmpty()) return null
         // Forced fixes (contraction stubs + frequent typos, plus the standalone "i")
-        // win over the dictionary, since the broad dictionary lists informal stubs
-        // like "hav"/"dont"/"wont" as words and can't insert the apostrophe these need.
+        // win over the dictionary AND the wordlist-load state, since the broad
+        // dictionary lists informal stubs like "hav"/"dont"/"wont" as words and
+        // can't insert the apostrophe these need.
         COMMON_FIXES[w]?.let { return it }
-        if (w.length < 3) return null
+        if (words.isEmpty() || w.length < 3) return null
         // A stray digit/symbol inside a word (e.g. "hav3", "hello2") is a typo too.
         val hadStrayChars = w.length != word.length
         // A genuine word (per the big dictionary or the common list) is never a

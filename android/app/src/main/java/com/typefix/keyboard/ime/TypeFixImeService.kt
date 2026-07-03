@@ -620,6 +620,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         }
     }
 
+    override fun canUndo(): Boolean = lastOriginal != null && lastCorrected != null
+
     override fun onUndo() {
         val original = lastOriginal ?: return
         val corrected = lastCorrected ?: return
