@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -81,18 +82,24 @@ object UpdateChecker {
         _state.value = State.Checking
         job = scope.launch {
             _state.value = try {
-                val info = fetchLatest()
+                val info = findNewer()
                 app.getSharedPreferences("typefix_update", Context.MODE_PRIVATE)
                     .edit().putLong("lastCheck", System.currentTimeMillis()).apply()
-                if (info != null && isNewer(info.versionName, BuildConfig.VERSION_NAME)) {
-                    State.Available(info)
-                } else {
-                    State.UpToDate(BuildConfig.VERSION_NAME)
-                }
+                if (info != null) State.Available(info) else State.UpToDate(BuildConfig.VERSION_NAME)
             } catch (e: Exception) {
                 State.Error(e.message ?: "Couldn't check for updates")
             }
         }
+    }
+
+    /**
+     * Queries GitHub and returns the update if one is newer than the running
+     * build, else null. Headless (no UI state) so the background worker can use
+     * it too. Throws on network/parse errors.
+     */
+    suspend fun findNewer(): UpdateInfo? = withContext(Dispatchers.IO) {
+        val info = fetchLatest() ?: return@withContext null
+        if (isNewer(info.versionName, BuildConfig.VERSION_NAME)) info else null
     }
 
     /** Downloads the [Available] update's APK, then launches the installer. */

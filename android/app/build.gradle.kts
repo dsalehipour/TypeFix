@@ -28,8 +28,8 @@ android {
         applicationId = "com.typefix.keyboard"
         minSdk = 28
         targetSdk = 35
-        versionCode = 21
-        versionName = "0.1.20"
+        versionCode = 22
+        versionName = "0.1.21"
         buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
         // Where the in-app updater looks for new releases.
         buildConfigField("String", "GITHUB_OWNER", "\"dsalehipour\"")
@@ -125,6 +125,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil)
     implementation(libs.coil.gif)
+    implementation(libs.androidx.work.runtime)
 
     // On-device LLM via Google's LiteRT-LM. Unlike the MediaPipe `.task` API,
     // this runs the official `.litertlm` builds (with their HuggingFace
