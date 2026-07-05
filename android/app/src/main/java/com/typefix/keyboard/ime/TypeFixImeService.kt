@@ -17,6 +17,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -98,6 +99,20 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     // session restarts that let them talk for as long as they want, until they
     // tap the mic again.
     private var wantListening = false
+    // Everything committed during the current dictation (with the separators we
+    // inserted), so the end-of-dictation cleanup can rewrite it as one piece.
+    private val dictationTranscript = StringBuilder()
+    // The latest partial hypothesis of the current recognition session — shown
+    // live as composing text, and committed if the session ends without a final
+    // result so no words are ever lost.
+    private var sessionPartial = ""
+    // How the current session's chunk joins the text before it: the separator
+    // (" " or "") and whether the chunk's first word should be de-capitalized
+    // (recognizers capitalize every chunk; mid-sentence that splits sentences).
+    private var sessionJoin: Pair<String, Boolean>? = null
+    // Fallback that finalizes the dictation if the engine never delivers a final
+    // result after the user taps stop.
+    private var dictationFinishJob: Job? = null
 
     // The most recent fix, kept so the action-bar Undo can revert it.
     private var lastOriginal: String? = null
@@ -289,7 +304,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         autoJob?.cancel()
         backspaceJob?.cancel()
         toneJob?.cancel()
-        if (wantListening) stopListening()
+        abortDictation()
         cancelInFlightFix()
         keyboard?.cancelAutoCountdown()
     }
@@ -298,6 +313,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         autoJob?.cancel()
         backspaceJob?.cancel()
         toneJob?.cancel()
+        dictationFinishJob?.cancel()
         wantListening = false
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         stopAllHaptics()
@@ -310,6 +326,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     // ---- KeyboardListener ----
 
     override fun onChar(text: String) {
+        abortDictation()
         cancelInFlightFix()
         clearLastFix()
         keyboard?.clearTone()
@@ -450,6 +467,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onSuggestionPicked(word: String) {
+        abortDictation()
         cancelInFlightFix()
         clearPendingAutoFix()
         pendingKeepWord = null
@@ -468,6 +486,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onClipboardPaste(text: String) {
+        abortDictation()
         cancelInFlightFix()
         clearLastFix()
         keyboard?.clearTone()
@@ -513,6 +532,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onBackspace() {
+        abortDictation()
         cancelInFlightFix()
         clearLastFix()
         keyboard?.clearTone()
@@ -538,6 +558,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onBackspacePressed() {
+        abortDictation()
         cancelInFlightFix()
         clearLastFix()
         backspaceJob?.cancel()
@@ -579,6 +600,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onEnter() {
+        abortDictation()
         autoJob?.cancel()
         val ic = currentInputConnection ?: return
         // Honor editor actions (Send/Search/Go) when present.
@@ -594,6 +616,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
     override fun onFix() {
         if (correcting) { onCancelFix(); return }
+        abortDictation()
         runCorrection(force = true)
     }
 
@@ -666,6 +689,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     override fun onGestureWord(word: String) {
+        abortDictation()
         clearLastFix()
         clearPendingAutoFix()
         val ic = currentInputConnection ?: return
@@ -941,6 +965,13 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     }
 
     // ---- Speech to text ----
+    //
+    // Dictation streams: partial hypotheses render live as composing text, each
+    // finalized chunk is committed with smart joining (spacing + casing) so one
+    // spoken sentence never splits across the engine's session restarts, and the
+    // optional LLM cleanup runs ONCE over the whole dictation at the end (with
+    // Undo) instead of per chunk — per-chunk rewrites were reordering/losing
+    // context and turning single sentences into two.
 
     override fun onMic() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -953,11 +984,15 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             return
         }
         if (wantListening) { stopListening(); return }
+        if (dictationFinishJob != null || listening) return // still finalizing the last one
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             keyboard?.flash("Speech recognition unavailable", orange)
             return
         }
         wantListening = true
+        dictationTranscript.setLength(0)
+        sessionPartial = ""
+        sessionJoin = null
         startListeningSession()
     }
 
@@ -974,8 +1009,12 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             override fun onEndOfSpeech() {}
             override fun onError(error: Int) {
                 listening = false
+                dictationFinishJob?.cancel(); dictationFinishJob = null
+                // Salvage whatever the engine already heard (its last partial
+                // hypothesis) so a timeout/no-match never eats spoken words.
+                commitDictationChunk(sessionPartial)
                 when {
-                    !wantListening -> {}
+                    !wantListening -> finishDictation()
                     // Permission / fatal: stop and tell the user.
                     error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                         wantListening = false
@@ -987,29 +1026,26 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
             }
             override fun onResults(results: Bundle?) {
                 listening = false
+                dictationFinishJob?.cancel(); dictationFinishJob = null
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                if (text.isNullOrBlank()) {
-                    if (wantListening) restartListeningSoon() else keyboard?.flash("Nothing heard", orange)
-                    return
-                }
-                clearLastFix()
-                // Voice cleanup sends the transcript to a model — skip it when
-                // corrections are blocked (password field, paused, app disabled)
-                // and commit the raw transcript instead.
-                if (settings.snapshot().voiceCleanupEnabled && !llmBlocked()) {
-                    keyboard?.setStatus("Cleaning up…", accent)
-                    scope.launch {
-                        val cleaned = Corrector.cleanupVoice(applicationContext, text, settings.snapshot()) ?: text
-                        currentInputConnection?.commitText("$cleaned ", 1)
-                        // Restart only after committing, so chunks stay in order.
-                        if (wantListening) startListeningSession() else keyboard?.flash("Done", green)
-                    }
-                } else {
-                    currentInputConnection?.commitText("$text ", 1)
-                    if (wantListening) restartListeningSoon() else keyboard?.flash("Done", green)
-                }
+                // An empty final result still may have had a partial — keep it.
+                commitDictationChunk(if (text.isNullOrBlank()) sessionPartial else text)
+                if (wantListening) restartListeningSoon() else finishDictation()
             }
-            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onPartialResults(partialResults: Bundle?) {
+                if (!wantListening) return
+                val partial = partialResults
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()?.trim().orEmpty()
+                if (partial.isEmpty()) return
+                sessionPartial = partial
+                // Live preview: the current hypothesis rides in the composing
+                // region and is replaced as the engine refines it, so words
+                // appear as you speak instead of after each silence.
+                val ic = currentInputConnection ?: return
+                val (sep, decap) = dictationJoin(ic)
+                ic.setComposingText(sep + adjustDictationCase(partial, decap), 1)
+            }
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -1034,11 +1070,149 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         }
     }
 
+    /** The user tapped the mic to stop. Ask the engine for its final result
+     *  (instead of cancelling, which drops it), with a timeout fallback that
+     *  finalizes from the last partial so the tail of speech is never lost. */
     private fun stopListening() {
         wantListening = false
+        if (!listening) {
+            finishDictation()
+            return
+        }
+        keyboard?.setStatus("Finishing…", gray)
+        runCatching { speechRecognizer?.stopListening() }
+        dictationFinishJob = scope.launch {
+            delay(1500)
+            // The engine never delivered a final result — salvage the partial.
+            listening = false
+            dictationFinishJob = null
+            runCatching { speechRecognizer?.cancel() }
+            commitDictationChunk(sessionPartial)
+            finishDictation()
+        }
+    }
+
+    /** The user started typing or the field closed mid-dictation: stop quietly,
+     *  keeping what's already on screen (the live partial included) and skipping
+     *  the end-of-dictation cleanup — they've taken over. */
+    private fun abortDictation() {
+        if (!wantListening && !listening) return
+        wantListening = false
         listening = false
+        dictationFinishJob?.cancel(); dictationFinishJob = null
         runCatching { speechRecognizer?.cancel() }
-        keyboard?.flash("Stopped", gray)
+        currentInputConnection?.finishComposingText()
+        dictationTranscript.setLength(0)
+        sessionPartial = ""
+        sessionJoin = null
+        keyboard?.clearUndo()
+    }
+
+    /**
+     * How this session's chunk attaches to the text already before the caret:
+     * the separator to insert, and whether to de-capitalize the chunk's first
+     * word. Recognizers capitalize every chunk, so gluing a mid-sentence chunk
+     * verbatim is exactly what used to split one sentence into two. Cached per
+     * session because while composing the text before the caret includes the
+     * live partial itself.
+     */
+    private fun dictationJoin(ic: InputConnection): Pair<String, Boolean> {
+        sessionJoin?.let { return it }
+        val before = ic.getTextBeforeCursor(4, 0)?.toString().orEmpty()
+        val sep = when {
+            before.isEmpty() || before.last().isWhitespace() -> ""
+            before.last() in "([{\u201C\"'/-" -> ""
+            else -> " "
+        }
+        val trimmed = before.trimEnd()
+        val midSentence = trimmed.isNotEmpty() && trimmed.last() !in ".!?\n…:"
+        val join = sep to midSentence
+        sessionJoin = join
+        return join
+    }
+
+    /** Lowercases the chunk's leading capital when continuing mid-sentence,
+     *  preserving "I…" forms and acronyms. */
+    private fun adjustDictationCase(chunk: String, decapitalize: Boolean): String {
+        if (!decapitalize) return chunk
+        val first = chunk.firstOrNull() ?: return chunk
+        if (!first.isUpperCase()) return chunk
+        val word = chunk.takeWhile { it.isLetter() || it == '\'' }
+        if (word == "I" || word.startsWith("I'")) return chunk
+        if (word.length >= 2 && word[1].isUpperCase()) return chunk // acronym
+        return chunk.replaceFirstChar { it.lowercase() }
+    }
+
+    /** Commits one finalized chunk (replacing the live composing preview) and
+     *  appends it to the running dictation transcript. Blank chunks just clear
+     *  the preview. */
+    private fun commitDictationChunk(raw: String) {
+        val chunk = raw.trim()
+        sessionPartial = ""
+        val ic = currentInputConnection
+        if (chunk.isEmpty()) {
+            ic?.finishComposingText()
+            sessionJoin = null
+            return
+        }
+        if (ic == null) { sessionJoin = null; return }
+        clearLastFix()
+        val (sep, decap) = dictationJoin(ic)
+        val out = sep + adjustDictationCase(chunk, decap)
+        // commitText replaces the active composing region, so the preview
+        // seamlessly becomes permanent text.
+        ic.commitText(out, 1)
+        dictationTranscript.append(out)
+        sessionJoin = null
+        refreshClipSuggestion()
+        refreshAutoCaps()
+    }
+
+    /**
+     * Dictation is over: run the optional voice cleanup ONCE across everything
+     * dictated (so the model sees full context and can't split or drop chunks),
+     * replace it in place, and offer Undo.
+     */
+    private fun finishDictation() {
+        dictationFinishJob?.cancel(); dictationFinishJob = null
+        currentInputConnection?.finishComposingText()
+        val dictated = dictationTranscript.toString()
+        dictationTranscript.setLength(0)
+        sessionPartial = ""
+        sessionJoin = null
+        if (dictated.isBlank()) {
+            keyboard?.flash("Nothing heard", orange)
+            return
+        }
+        val s = settings.snapshot()
+        // Cleanup sends the transcript to a model — skip it when corrections are
+        // blocked (password field, paused, app disabled) or the dictation is too
+        // short to be worth a rewrite.
+        if (!s.voiceCleanupEnabled || llmBlocked() || dictated.trim().length < 12) {
+            keyboard?.flash("Done", green)
+            return
+        }
+        keyboard?.setStatus("Cleaning up…", accent)
+        scope.launch {
+            val cleaned = Corrector.cleanupVoice(applicationContext, dictated.trim(), s)
+            if (cleaned.isNullOrBlank() || cleaned == dictated.trim()) {
+                keyboard?.flash("Done", green)
+                return@launch
+            }
+            // Re-attach the dictation's leading separator and match its casing so
+            // the cleaned text still joins the surrounding text correctly.
+            val leading = dictated.takeWhile { it.isWhitespace() }
+            val body = dictated.drop(leading.length)
+            val adjusted = leading + adjustDictationCase(cleaned, body.firstOrNull()?.isLowerCase() == true)
+            if (replaceTrailing(dictated, adjusted)) {
+                lastOriginal = dictated
+                lastCorrected = adjusted
+                keyboard?.showUndo("Cleaned up", green)
+            } else {
+                // The user already edited around it — leave the raw dictation.
+                keyboard?.flash("Done", green)
+            }
+        }
     }
 
     // ---- Correction ----
