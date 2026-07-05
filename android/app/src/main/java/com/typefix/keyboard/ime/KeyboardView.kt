@@ -544,8 +544,8 @@ class KeyboardView(
             isAllCaps = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), 0, dp(8), 0)
+            gravity = Gravity.CENTER
+            setPadding(dp(14), 0, dp(14), 0)
             setTextColor(colText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             background = drawable(R.drawable.key_flat_bg)
