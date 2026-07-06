@@ -13,6 +13,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.text.InputType
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
@@ -34,6 +35,7 @@ import com.typefix.keyboard.model.CorrectionMode
 import com.typefix.keyboard.settings.AppSettings
 import com.typefix.keyboard.ui.MicPermissionActivity
 import com.typefix.keyboard.ui.SettingsActivity
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,7 +59,12 @@ import java.util.Locale
  */
 class TypeFixImeService : InputMethodService(), KeyboardListener {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // A stray failure in one background job (network, model, speech) must never
+    // take the whole keyboard process down — log it and keep the IME alive.
+    private val crashGuard = CoroutineExceptionHandler { _, t ->
+        Log.e("TypeFixIme", "Uncaught in keyboard coroutine", t)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + crashGuard)
     private lateinit var settings: AppSettings
     private var keyboard: KeyboardView? = null
 
@@ -74,6 +81,10 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
     private var emojiSuggestJob: Job? = null
     private var suggestJob: Job? = null
     private var toneJob: Job? = null
+    // Stops the model's foreground service after the keyboard has been idle a
+    // while, so it doesn't run 24/7 and hit Android's foreground-service time
+    // budget (which otherwise kills the process — the "crashes overnight" bug).
+    private var stopInferenceJob: Job? = null
     private var toneTarget: String? = null
     private var toneFlag: String? = null
 
@@ -253,6 +264,8 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         clipSuggestionDismissed = false
         captureClipboard()
 
+        // The keyboard is back — don't stop the model service on the idle timer.
+        stopInferenceJob?.cancel()
         val s = settings.snapshot()
         if (s.provider.isLocal) {
             val id = s.localModelId.ifBlank { s.model }
@@ -307,6 +320,22 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         abortDictation()
         cancelInFlightFix()
         keyboard?.cancelAutoCountdown()
+        scheduleInferenceServiceStop()
+    }
+
+    /**
+     * Release the model's foreground service after the keyboard has stayed hidden
+     * for a while. This keeps the model warm during a session but frees it (and
+     * stops the foreground-service runtime clock) when the phone is idle, so the
+     * service never runs long enough to hit Android's FGS time limit and crash.
+     * The in-process model stays cached, so reuse within the window is instant.
+     */
+    private fun scheduleInferenceServiceStop() {
+        stopInferenceJob?.cancel()
+        stopInferenceJob = scope.launch {
+            delay(INFERENCE_IDLE_STOP_MS)
+            runCatching { InferenceService.stop(applicationContext) }
+        }
     }
 
     override fun onDestroy() {
@@ -314,11 +343,14 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         backspaceJob?.cancel()
         toneJob?.cancel()
         dictationFinishJob?.cancel()
+        stopInferenceJob?.cancel()
         wantListening = false
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         stopAllHaptics()
         speechRecognizer?.destroy()
         speechRecognizer = null
+        // No keyboard means the model's foreground service is no longer needed.
+        runCatching { InferenceService.stop(applicationContext) }
         scope.coroutineContext[Job]?.cancel()
         super.onDestroy()
     }
@@ -1452,5 +1484,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
 
         // How long after a copy we keep offering the "tap to paste" chip (1 hour).
         private const val CLIP_SUGGESTION_TTL_MS = 60L * 60L * 1000L
+
+        // Idle time after the keyboard hides before we release the model's
+        // foreground service (keeps it warm across quick app switches).
+        private const val INFERENCE_IDLE_STOP_MS = 3L * 60L * 1000L
     }
 }

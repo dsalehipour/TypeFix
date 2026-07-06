@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -37,6 +38,30 @@ class InferenceService : LifecycleService() {
         return START_STICKY
     }
 
+    /**
+     * Android 14+ (`shortService`) and Android 15+ (`dataSync`) enforce a runtime
+     * budget on foreground services — a `dataSync` FGS may only run ~6 hours per
+     * 24h, after which the system calls onTimeout and, if we don't stop, kills the
+     * process with a ForegroundServiceDidNotStopInTimeException. That's what made
+     * TypeFix "crash overnight" when left running. Stop cleanly instead; the
+     * keyboard restarts this service (and reloads the model on demand) next time
+     * it's used.
+     */
+    override fun onTimeout(startId: Int) {
+        Log.w(TAG, "Foreground service timed out; stopping to avoid a crash.")
+        stopSelfSafely()
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "Foreground service (type=$fgsType) timed out; stopping to avoid a crash.")
+        stopSelfSafely()
+    }
+
+    private fun stopSelfSafely() {
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        runCatching { stopSelf() }
+    }
+
     private fun startForegroundCompat() {
         val channelId = ensureChannel()
         val notification: Notification = NotificationCompat.Builder(this, channelId)
@@ -64,6 +89,7 @@ class InferenceService : LifecycleService() {
     }
 
     companion object {
+        private const val TAG = "InferenceService"
         private const val CHANNEL_ID = "typefix_model"
         private const val NOTIFICATION_ID = 42
 
