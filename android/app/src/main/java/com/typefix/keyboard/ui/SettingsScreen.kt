@@ -78,7 +78,6 @@ fun SettingsScreen() {
         ) {
             SetupCard(context)
             UpdatesCard(context)
-            AvailabilityCard(settings, snapshot)
             ProviderCard(settings, snapshot.provider)
             if (snapshot.provider.isLocal) {
                 LocalModelCard(context, settings, snapshot.localModelId)
@@ -98,6 +97,9 @@ fun SettingsScreen() {
             GuardrailCard(settings, snapshot.spellCheckAfterCorrection, snapshot.autoFixResidualTypos)
             ProtectedWordsCard(settings, snapshot.protectedWords)
             if (snapshot.phraseMemoryEnabled) PhraseMemoryCard(context)
+            // The master on/off lives at the very bottom — it's the least-used
+            // control, so it stays out of the way of everyday settings.
+            AvailabilityCard(settings, snapshot)
             Text(
                 "TypeFix v${com.typefix.keyboard.BuildConfig.VERSION_NAME} (${com.typefix.keyboard.BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.bodySmall,
@@ -268,12 +270,15 @@ private fun openUrl(context: Context, url: String) {
 @Composable
 private fun AvailabilityCard(settings: AppSettings, snapshot: SettingsSnapshot) {
     SectionCard("TypeFix on/off") {
-        ToggleRow("Pause TypeFix everywhere", snapshot.paused) { settings.paused = it }
+        // Positive framing: ON = enabled, OFF = paused. Stored as `paused`, so the
+        // switch shows the inverse and writes the inverse back.
+        ToggleRow("TypeFix enabled everywhere", !snapshot.paused) { settings.paused = !it }
         Text(
-            "Pausing keeps the keyboard working but turns off everything that sends text " +
-                "to a model (corrections, tone check, emoji/GIF and voice AI). Offline " +
-                "autocorrect, suggestions, and swipe keep working. You can also pause or " +
-                "disable per-app by holding the \u2699 key on the keyboard.",
+            "When on, TypeFix's AI features are active. Turn it off to pause everything " +
+                "that sends text to a model (corrections, tone check, emoji/GIF and voice " +
+                "AI); the keyboard keeps working and offline autocorrect, suggestions, and " +
+                "swipe keep going. You can also pause or disable per-app by holding the " +
+                "\u2699 key on the keyboard.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
