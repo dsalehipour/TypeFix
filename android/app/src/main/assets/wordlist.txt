@@ -9892,3 +9892,7 @@ arbor
 mediawiki
 configurations
 poison
+autocorrect
+autocorrected
+autocorrecting
+autocorrects

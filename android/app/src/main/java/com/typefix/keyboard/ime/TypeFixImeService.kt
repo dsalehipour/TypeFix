@@ -362,6 +362,7 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         if (settings.snapshot().phraseMemoryEnabled &&
             PhraseMemory.isLearned(applicationContext, word)
         ) return false
+        if (maybeAutoFixSpaceSlip(ic, before, word)) return true
         val fixLower = GestureDecoder.autoFix(applicationContext, word) ?: return false
         val fixed = applyCaseLike(word, fixLower)
         if (fixed == word) return false
@@ -374,6 +375,38 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         // Anchor = caret position right after "fixed " so we can recognise it later
         // even after the user keeps typing and backspaces back to it.
         autoFixAnchor = if (selectionKnown) lastSelEnd - word.length + fixed.length + 1 else -1
+        return true
+    }
+
+    /** A space typed one character too early can split a contraction into the
+     *  next word ("that scool" for "that's cool"). When the previous word plus the
+     *  stray letter forms a known contraction and the rest is a real word, fix
+     *  both words at once. Same revert path as the single-word fix. */
+    private fun maybeAutoFixSpaceSlip(
+        ic: InputConnection,
+        before: String,
+        word: String,
+    ): Boolean {
+        val beforePrev = before.dropLast(word.length)
+        if (beforePrev.lastOrNull() != ' ') return false
+        val prevWord = beforePrev.dropLast(1).takeLastWhile { !it.isWhitespace() }
+        if (prevWord.isEmpty() || !prevWord.all { it.isLetter() }) return false
+        val original = "$prevWord $word"
+        if (original.lowercase() in rejectedAutoFix) return false
+        if (settings.snapshot().protectedWords.any { it.equals(prevWord, ignoreCase = true) }) return false
+        if (settings.snapshot().phraseMemoryEnabled &&
+            PhraseMemory.isLearned(applicationContext, prevWord)
+        ) return false
+        val pair = GestureDecoder.autoFixSpaceSlip(applicationContext, prevWord, word) ?: return false
+        val fixed = "${applyCaseLike(prevWord, pair.first)} ${applyCaseLike(word, pair.second)}"
+        if (fixed == original) return false
+        ic.beginBatchEdit()
+        ic.deleteSurroundingText(original.length, 0)
+        ic.commitText("$fixed ", 1)
+        ic.endBatchEdit()
+        pendingAutoFixOriginal = original
+        pendingAutoFixApplied = fixed
+        autoFixAnchor = if (selectionKnown) lastSelEnd - original.length + fixed.length + 1 else -1
         return true
     }
 
@@ -456,7 +489,9 @@ class TypeFixImeService : InputMethodService(), KeyboardListener {
         if (isSecureField) { keyboard?.setSuggestions(emptyList()); return }
         val before = currentInputConnection?.getTextBeforeCursor(48, 0)?.toString().orEmpty()
         val word = before.takeLastWhile { !it.isWhitespace() }
-        if (word.length < 2 || !word.all { it.isLetter() }) {
+        // Letters, or letters with an interior number-row slip ("h9w") — suggest()
+        // itself rejects digit patterns that look intentional ("9am", "v2").
+        if (word.length < 2 || !word.all { it.isLetterOrDigit() } || word.none { it.isLetter() }) {
             keyboard?.setSuggestions(emptyList())
             return
         }

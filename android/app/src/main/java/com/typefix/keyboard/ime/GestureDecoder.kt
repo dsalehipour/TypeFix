@@ -51,6 +51,15 @@ object GestureDecoder {
         "agian" to "again", "tommorow" to "tomorrow", "tommorrow" to "tomorrow",
         "goverment" to "government", "enviroment" to "environment",
         "wanna" to "wanna", "gonna" to "gonna",
+        // adjacent-key slips too short for the fuzzy matcher (min length 3)
+        "uo" to "up",
+    )
+
+    /** Words that exist in the big dictionary but are near-always typos when typed
+     *  in lowercase (e.g. "od" is a real-but-obscure noun; typed it's almost always
+     *  "of"). Skipped for ALL-CAPS input so abbreviations like "OD" survive. */
+    private val RARE_WORD_FIXES: Map<String, String> = mapOf(
+        "od" to "of",
     )
 
     /** Fixes that depend on capitalization: only applied when the word is written
@@ -59,6 +68,26 @@ object GestureDecoder {
     private val CASED_FIXES: Map<String, String> = mapOf(
         "Ill" to "I'll",
         "Id" to "I'd",
+    )
+
+    /** For a digit typed inside a word, the letters it plausibly stands for: the
+     *  QWERTY key directly below it (a number-row slip: intending "o" but hitting
+     *  "9" gives "h9w"), plus common look-alikes (0→o, 1→l, 5→s). */
+    private val DIGIT_SLIPS: Map<Char, String> = mapOf(
+        '1' to "ql", '2' to "w", '3' to "e", '4' to "r", '5' to "ts",
+        '6' to "y", '7' to "u", '8' to "i", '9' to "o", '0' to "po",
+    )
+
+    /** QWERTY neighbors (same row + adjacent rows) of each letter key, used to
+     *  tell an accidental extra keypress from a misplaced space. */
+    private val KEY_NEIGHBORS: Map<Char, String> = mapOf(
+        'a' to "qswz", 'b' to "ghnv", 'c' to "dfvx", 'd' to "cefrsx",
+        'e' to "drsw", 'f' to "cdgrtv", 'g' to "bfhtvy", 'h' to "bgjnuy",
+        'i' to "jkou", 'j' to "hikmnu", 'k' to "ijlmo", 'l' to "kop",
+        'm' to "jkn", 'n' to "bhjm", 'o' to "iklp", 'p' to "lo",
+        'q' to "aw", 'r' to "deft", 's' to "adewxz", 't' to "fgry",
+        'u' to "hijy", 'v' to "bcfg", 'w' to "aeqs", 'x' to "cdsz",
+        'y' to "ghtu", 'z' to "asx",
     )
 
     @Volatile
@@ -108,9 +137,20 @@ object GestureDecoder {
      * (typo fixes, incl. transpositions like "teh" → "the").
      */
     fun suggest(word: String, limit: Int = 3): List<String> {
-        val w = word.lowercase().filter { it in 'a'..'z' }
-        if (w.length < 2 || words.isEmpty()) return emptyList()
+        if (words.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
+        val w: String
+        if (word.any { it in '0'..'9' }) {
+            // An interior digit is a number-row slip ("h9w"): suggest for the
+            // repaired reading instead of showing nothing.
+            val repairs = digitSlipRepairs(word)
+            if (repairs.isEmpty()) return emptyList()
+            w = repairs.firstOrNull { commonSet.contains(it) } ?: repairs.first()
+            if (commonSet.contains(w)) out.add(w) // the repaired word itself
+        } else {
+            w = word.lowercase().filter { it in 'a'..'z' }
+        }
+        if (w.length < 2) return out.toList()
         for (cand in words) {
             if (cand.length > w.length && cand.startsWith(w)) {
                 out.add(cand)
@@ -149,7 +189,26 @@ object GestureDecoder {
         // dictionary lists informal stubs like "hav"/"dont"/"wont" as words and
         // can't insert the apostrophe these need.
         COMMON_FIXES[w]?.let { return it }
-        if (words.isEmpty() || w.length < 3) return null
+        // Real-but-obscure dictionary words that are near-always typos ("od" → "of"),
+        // unless typed ALL-CAPS (an abbreviation like "OD").
+        val letters = word.filter { it.isLetter() }
+        val allCaps = letters.length > 1 && letters.all { it.isUpperCase() }
+        if (!allCaps) RARE_WORD_FIXES[w]?.let { return it }
+        if (words.isEmpty()) return null
+        // A digit sandwiched between letters is a number-row slip ("h9w" → "how",
+        // "ah9uld" → "should"): substitute the letter under that digit key and see
+        // if a real (or near-real) word comes out. Digits at a word's edge are left
+        // alone here — those are usually intentional ("9am", "mp3") and the plain
+        // stripped path below already covers trailing slips like "hav3".
+        val repairs = digitSlipRepairs(word)
+        for (repair in repairs) {
+            COMMON_FIXES[repair]?.let { return it }
+            if (validSet.contains(repair) || commonSet.contains(repair)) return repair
+        }
+        for (repair in repairs) {
+            fuzzyFix(repair)?.let { return it }
+        }
+        if (w.length < 3) return null
         // A stray digit/symbol inside a word (e.g. "hav3", "hello2") is a typo too.
         val hadStrayChars = w.length != word.length
         // A genuine word (per the big dictionary or the common list) is never a
@@ -157,6 +216,50 @@ object GestureDecoder {
         if (validSet.contains(w) || commonSet.contains(w)) {
             return if (hadStrayChars) w else null
         }
+        fuzzyFix(w)?.let { return it }
+        // Last resort for longer words: two adjacent-key substitutions against a
+        // very common same-length word ("whouls" → "should", w/s and s/d are
+        // neighboring keys). Requiring both slips to be keyboard neighbors keeps
+        // names and slang ("spotify", "yeeted") from being mangled.
+        if (w.length >= 6) {
+            var rank = 0
+            for (cand in words) {
+                if (rank++ > 4000) break
+                if (cand.length != w.length) continue
+                if (within2NeighborSubs(cand, w)) return cand
+            }
+        }
+        return null
+    }
+
+    /**
+     * Fixes a space typed one character too early, splitting a contraction into
+     * the next word: "that scool" → "that's cool", "i mcool" → "I'm cool". Fires
+     * only when the typed [word] is NOT a real word, the previous word plus the
+     * stray first letter is a known contraction stub, and what's left is a real
+     * word. Returns the fixed (prev, word) pair, lowercase.
+     */
+    fun autoFixSpaceSlip(context: Context, prev: String, word: String): Pair<String, String>? {
+        ensureLoaded(context)
+        ensureValidLoaded(context)
+        if (words.isEmpty()) return null
+        val p = prev.lowercase().filter { it in 'a'..'z' }
+        val w = word.lowercase().filter { it in 'a'..'z' }
+        if (p.isEmpty() || w.length < 3 || w.length != word.length || p.length != prev.length) return null
+        if (validSet.contains(w) || commonSet.contains(w)) return null
+        val fixedPrev = COMMON_FIXES[p + w.first()] ?: return null
+        val rest = w.drop(1)
+        if (!validSet.contains(rest) && !commonSet.contains(rest)) return null
+        // When the stray letter sits right next to the following key it's more
+        // likely an accidental double press than a misplaced space — leave that
+        // to the single-word fuzzy fix ("sdid" → "did", not "'s did").
+        if (KEY_NEIGHBORS[w[0]]?.contains(w[1]) == true) return null
+        return fixedPrev to rest
+    }
+
+    /** First (most frequent) wordlist entry within Damerau-Levenshtein distance 1. */
+    private fun fuzzyFix(w: String): String? {
+        if (w.length < 3) return null
         var scanned = 0
         for (cand in words) { // frequency-ordered → first within-1 hit is the most common
             if (scanned++ > 20000) break
@@ -164,6 +267,48 @@ object GestureDecoder {
             if (within1(cand, w)) return cand
         }
         return null
+    }
+
+    /**
+     * Candidate letter-only readings of a word whose interior digits were
+     * number-row slips ("h9w" → ["how"], "ah9uld" → ["ahould"]). Empty when the
+     * word has no digits, too many, or a digit at either edge (usually real:
+     * "9am", "v2", "win10").
+     */
+    private fun digitSlipRepairs(word: String): List<String> {
+        val w = word.lowercase()
+        val digits = w.count { it in '0'..'9' }
+        if (digits == 0 || digits > 2) return emptyList()
+        for (i in w.indices) {
+            if (w[i] !in '0'..'9') continue
+            if (i == 0 || i == w.length - 1) return emptyList()
+            if (w[i - 1] !in 'a'..'z' || w[i + 1] !in 'a'..'z') return emptyList()
+        }
+        var variants = listOf("")
+        for (ch in w) {
+            variants = when (ch) {
+                in 'a'..'z' -> variants.map { it + ch }
+                in '0'..'9' -> {
+                    val options = DIGIT_SLIPS[ch] ?: return emptyList()
+                    variants.flatMap { v -> options.map { v + it } }
+                }
+                else -> variants
+            }
+        }
+        return variants
+    }
+
+    /** At-most-two-substitution match for same-length strings where every
+     *  substituted pair sits on neighboring keys (a fat-finger slip, not a
+     *  different word). 0/1 diffs were already handled by the within-1 pass. */
+    private fun within2NeighborSubs(a: String, b: String): Boolean {
+        var diff = 0
+        for (i in a.indices) {
+            if (a[i] == b[i]) continue
+            if (++diff > 2) return false
+            if (KEY_NEIGHBORS[a[i]]?.contains(b[i]) != true) return false
+        }
+        return true
     }
 
     /** Damerau-Levenshtein distance <= 1 (substitution / insert / delete / swap). */
