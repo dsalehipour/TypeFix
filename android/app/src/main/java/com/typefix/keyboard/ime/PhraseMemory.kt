@@ -11,20 +11,25 @@ import org.json.JSONObject
  * personal dictionary — never auto-corrected and never changed by the LLM.
  *
  * Counts persist across sessions (a word is usually reverted in separate typing
- * sessions), and the learned set is persisted too. Only active when the user
- * enables phrase memory.
+ * sessions), and the learned set is persisted too. The user can also approve an
+ * in-progress word (learn it now) or reject it (block it from being learned).
+ * Only active when the user enables phrase memory.
  */
 object PhraseMemory {
+
+    const val THRESHOLD = 3
 
     private const val PREFS = "phrase_memory"
     private const val KEY_LEARNED = "learned"
     private const val KEY_COUNTS = "revert_counts"
-    private const val THRESHOLD = 3
+    private const val KEY_BLOCKED = "blocked"
 
     @Volatile
     private var learned: MutableSet<String>? = null
     @Volatile
     private var counts: MutableMap<String, Int>? = null
+    @Volatile
+    private var blocked: MutableSet<String>? = null
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -34,12 +39,28 @@ object PhraseMemory {
     fun isLearned(context: Context, word: String): Boolean =
         ensureLearned(context).any { it.equals(word, ignoreCase = true) }
 
+    /** Words currently being learned, most-progress first, as (word, count). */
+    fun inProgress(context: Context): List<Pair<String, Int>> =
+        ensureCounts(context).entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .map { it.key to it.value }
+
     private fun ensureLearned(context: Context): MutableSet<String> {
         learned?.let { return it }
         synchronized(this) {
             learned?.let { return it }
             val set = prefs(context).getStringSet(KEY_LEARNED, emptySet())!!.toMutableSet()
             learned = set
+            return set
+        }
+    }
+
+    private fun ensureBlocked(context: Context): MutableSet<String> {
+        blocked?.let { return it }
+        synchronized(this) {
+            blocked?.let { return it }
+            val set = prefs(context).getStringSet(KEY_BLOCKED, emptySet())!!.toMutableSet()
+            blocked = set
             return set
         }
     }
@@ -71,10 +92,11 @@ object PhraseMemory {
      */
     fun recordKeptRevert(context: Context, rawWord: String): Boolean {
         val word = clean(rawWord) ?: return false
+        val key = word.lowercase()
+        if (ensureBlocked(context).contains(key)) return false // user rejected it
         val learnedSet = ensureLearned(context)
         if (learnedSet.any { it.equals(word, ignoreCase = true) }) return false
         val map = ensureCounts(context)
-        val key = word.lowercase()
         val n = (map[key] ?: 0) + 1
         map[key] = n
         if (n >= THRESHOLD) {
@@ -88,6 +110,30 @@ object PhraseMemory {
         return false
     }
 
+    /** Approve an in-progress word: learn it now (skips the remaining reverts). */
+    fun learnNow(context: Context, word: String) {
+        val clean = clean(word) ?: return
+        val map = ensureCounts(context)
+        map.remove(clean.lowercase())
+        saveCounts(context, map)
+        val set = ensureLearned(context)
+        if (set.none { it.equals(clean, ignoreCase = true) }) {
+            set.add(clean)
+            prefs(context).edit().putStringSet(KEY_LEARNED, set).apply()
+        }
+    }
+
+    /** Reject an in-progress word: drop its progress and never learn it again. */
+    fun reject(context: Context, word: String) {
+        val key = (clean(word) ?: word).lowercase()
+        val map = ensureCounts(context)
+        map.remove(key)
+        saveCounts(context, map)
+        val blockedSet = ensureBlocked(context)
+        blockedSet.add(key)
+        prefs(context).edit().putStringSet(KEY_BLOCKED, blockedSet).apply()
+    }
+
     fun forget(context: Context, word: String) {
         val set = ensureLearned(context)
         set.removeAll { it.equals(word, ignoreCase = true) }
@@ -97,7 +143,8 @@ object PhraseMemory {
     fun clear(context: Context) {
         ensureCounts(context).clear()
         ensureLearned(context).clear()
-        prefs(context).edit().remove(KEY_LEARNED).remove(KEY_COUNTS).apply()
+        ensureBlocked(context).clear()
+        prefs(context).edit().remove(KEY_LEARNED).remove(KEY_COUNTS).remove(KEY_BLOCKED).apply()
     }
 
     private fun clean(rawWord: String): String? {

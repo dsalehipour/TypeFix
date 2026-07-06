@@ -6,6 +6,7 @@ import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,8 +18,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -650,11 +654,13 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 @Composable
 private fun PhraseMemoryCard(context: Context) {
     var words by remember { mutableStateOf(PhraseMemory.learned(context).sorted()) }
+    var inProgress by remember { mutableStateOf(PhraseMemory.inProgress(context)) }
+    var showProgress by remember { mutableStateOf(false) }
     SectionCard("Learned words (phrase memory)") {
         Text(
             "Words TypeFix learned because you reverted their autocorrect and kept " +
-                "them 3 times. These are never auto-corrected or changed by the AI. " +
-                "Remove any that slipped in.",
+                "them ${PhraseMemory.THRESHOLD} times. These are never auto-corrected or " +
+                "changed by the AI. Remove any that slipped in.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -677,7 +683,57 @@ private fun PhraseMemoryCard(context: Context) {
             TextButton(onClick = {
                 PhraseMemory.clear(context)
                 words = PhraseMemory.learned(context).sorted()
+                inProgress = PhraseMemory.inProgress(context)
             }) { Text("Forget all") }
+        }
+
+        // Words still being learned (collapsible), with approve/reject.
+        if (inProgress.isNotEmpty()) {
+            HorizontalDivider()
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showProgress = !showProgress },
+            ) {
+                Text(
+                    "Being learned (${inProgress.size})",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Icon(
+                    if (showProgress) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (showProgress) "Collapse" else "Expand",
+                )
+            }
+            if (showProgress) {
+                Text(
+                    "Approve ✓ to learn now, or reject ✕ so it's never learned.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                inProgress.take(10).forEach { (word, count) ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text(word, Modifier.weight(1f))
+                        Text(
+                            "$count/${PhraseMemory.THRESHOLD}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp),
+                        )
+                        IconButton(onClick = {
+                            PhraseMemory.learnNow(context, word)
+                            words = PhraseMemory.learned(context).sorted()
+                            inProgress = PhraseMemory.inProgress(context)
+                        }) { Icon(Icons.Default.Check, contentDescription = "Learn now") }
+                        IconButton(onClick = {
+                            PhraseMemory.reject(context, word)
+                            inProgress = PhraseMemory.inProgress(context)
+                        }) { Icon(Icons.Default.Close, contentDescription = "Reject") }
+                    }
+                }
+            }
         }
     }
 }
