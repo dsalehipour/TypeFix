@@ -23809,6 +23809,12 @@ autoconvection
 autoconverter
 autocopist
 autocoprophagous
+autocorrect
+autocorrected
+autocorrecting
+autocorrection
+autocorrections
+autocorrects
 autocorrelate
 autocorrelation
 autocorrosion

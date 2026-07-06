@@ -100,5 +100,10 @@
   {"in": "do yu thnik we shoud build this in-houes or jsut buy a third-party tool that alreayd does most of waht we need", "out": "do you think we should build this in-house or just buy a third-party tool that already does most of what we need"},
   {"in": "ngl this weke has ben a lot but im realy proud of waht the tem shiped", "out": "ngl this week has been a lot but I'm really proud of what the team shipped"},
   {"in": "Let's review the pull request after lunch.", "out": "Let's review the pull request after lunch."},
-  {"in": "wokr smarter nto harder", "out": "work smarter not harder"}
+  {"in": "wokr smarter nto harder", "out": "work smarter not harder"},
+  {"in": "h9w did the demo go", "out": "how did the demo go"},
+  {"in": "you ah9uld take a look befroe we ship", "out": "you should take a look before we ship"},
+  {"in": "that scool, count me in for saturday", "out": "that's cool, count me in for Saturday", "alts": ["that's cool, count me in for saturday"]},
+  {"in": "let me list a few mors so you can get the idea od the things that end uo not being autocorrexted", "out": "let me list a few more so you can get the idea of the things that end up not being autocorrected"},
+  {"in": "i would be down to go on the boar but i dont know if i have a bathing suit that will fit me", "out": "I would be down to go on the boat but I don't know if I have a bathing suit that will fit me", "alts": ["I would be down to go on the board but I don't know if I have a bathing suit that will fit me"]}
 ]
