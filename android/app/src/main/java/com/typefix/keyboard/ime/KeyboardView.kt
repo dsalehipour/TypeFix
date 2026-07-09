@@ -1312,8 +1312,10 @@ class KeyboardView(
         if (searchMode != SearchMode.EMOJI) return
         emojiLoadingAnimator?.cancel()
         emojiLoadingAnimator = null
-        if (results.isNotEmpty()) renderEmojiResults(results)
-        else renderEmojiResults(EmojiSearchIndex.search(searchQuery.toString()))
+        // Always keep the plain keyword matches available: LLM picks first, then the
+        // normal search results, so the user isn't limited to what the model suggests.
+        val local = EmojiSearchIndex.search(searchQuery.toString())
+        renderEmojiResults((results + local).distinct())
     }
 
     /** Shimmering placeholder tiles while GIFs are being fetched. */
@@ -1807,13 +1809,13 @@ class KeyboardView(
     }
 
     /**
-     * Typing an apostrophe, comma, or double quote from the symbols layout flips
-     * back to the letter keyboard, because what follows (e.g. "don't", ", then …",
-     * a quoted word) is almost always a letter — so the common case needs zero
-     * extra taps.
+     * Typing an apostrophe, comma, double quote, or question mark from the symbols
+     * layout flips back to the letter keyboard, because what follows (e.g. "don't",
+     * ", then …", a quoted word, or the next sentence) is almost always a letter —
+     * so the common case needs zero extra taps.
      */
     private fun returnToLettersAfterPunct(baseChar: String) {
-        if (symbols && (baseChar == "'" || baseChar == "," || baseChar == "\"")) {
+        if (symbols && (baseChar == "'" || baseChar == "," || baseChar == "\"" || baseChar == "?")) {
             symbols = false
             symbolsPage = 0
             renderKeys()

@@ -176,12 +176,10 @@ object Corrector {
         } catch (t: Throwable) {
             return emptyList()
         }
-        return raw
-            .split(Regex("\\s+"))
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && it.any { ch -> ch.code > 0x2000 } }
-            .distinct()
-            .take(8)
+        // Split into individual emojis by grapheme cluster (not by spaces): small
+        // models often run the emojis together, which would otherwise become one
+        // chip that pastes 8 emojis at once.
+        return toSingleEmojis(raw).take(8)
     }
 
     /**
@@ -205,12 +203,25 @@ object Corrector {
         } catch (t: Throwable) {
             return emptyList()
         }
-        return raw
-            .split(Regex("\\s+"))
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && it.any { ch -> ch.code > 0x2000 } }
-            .distinct()
-            .take(12)
+        return toSingleEmojis(raw).take(12)
+    }
+
+    /** Breaks a model's emoji output into individual emojis by grapheme cluster,
+     *  so combined/space-less output ("😂😭🔥") yields one entry per emoji while
+     *  multi-codepoint emojis (skin tones, ZWJ families, flags) stay intact. */
+    private fun toSingleEmojis(raw: String): List<String> {
+        val out = ArrayList<String>()
+        val it = java.text.BreakIterator.getCharacterInstance()
+        it.setText(raw)
+        var start = it.first()
+        var end = it.next()
+        while (end != java.text.BreakIterator.DONE) {
+            val cluster = raw.substring(start, end).trim()
+            if (cluster.isNotEmpty() && cluster.any { ch -> ch.code > 0x2000 }) out.add(cluster)
+            start = end
+            end = it.next()
+        }
+        return out.distinct()
     }
 
     /** True if a backend is configured & ready — callers use this to decide

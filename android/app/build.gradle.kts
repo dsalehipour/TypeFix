@@ -28,8 +28,8 @@ android {
         applicationId = "com.typefix.keyboard"
         minSdk = 28
         targetSdk = 35
-        versionCode = 28
-        versionName = "0.1.27"
+        versionCode = 29
+        versionName = "0.1.28"
         buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
         // Where the in-app updater looks for new releases.
         buildConfigField("String", "GITHUB_OWNER", "\"dsalehipour\"")
