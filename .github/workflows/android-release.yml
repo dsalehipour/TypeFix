@@ -82,6 +82,11 @@ jobs:
 
       - name: Build signed release APK
         working-directory: android
+        env:
+          # Bundled KLIPY GIF key; build.gradle.kts falls back to this env var when
+          # local.properties is absent (as it is in CI). Without it, GIF search
+          # ships disabled ("GIF search unavailable").
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: |
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease --stacktrace

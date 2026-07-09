@@ -55,7 +55,7 @@ secrets. These are derived from the local, gitignored signing material:
 - Keystore: `android/keystore/typefix-release.jks`
 - `android/keystore.properties` (`storePassword`, `keyAlias`, `keyPassword`)
 
-The four secrets the workflow reads:
+The secrets the workflow reads:
 
 | Secret | Value |
 | --- | --- |
@@ -63,6 +63,15 @@ The four secrets the workflow reads:
 | `ANDROID_KEYSTORE_PASSWORD` | the keystore `storePassword` |
 | `ANDROID_KEY_ALIAS` | the key alias (`typefix`) |
 | `ANDROID_KEY_PASSWORD` | the `keyPassword` |
+| `KLIPY_API_KEY` | the bundled KLIPY GIF key (from `android/local.properties`) |
+
+Without `KLIPY_API_KEY` the release APK ships with GIF search disabled ("GIF
+search unavailable"), because `local.properties` is gitignored and absent in CI.
+Set it from the value in `android/local.properties`:
+
+```bash
+gh secret set KLIPY_API_KEY -R dsalehipour/typefix   # paste the KLIPY_API_KEY value
+```
 
 These have already been configured for `dsalehipour/typefix`. To regenerate them
 (e.g. after rotating the keystore), run from the repo root:

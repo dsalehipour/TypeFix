@@ -6,12 +6,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// Bundled KLIPY GIF key, read from local.properties (kept out of git). The
+// Bundled KLIPY GIF key. Read from local.properties (kept out of git) on a dev
+// machine, or from the KLIPY_API_KEY env var in CI (set from a repo secret). The
 // built APK embeds it so GIF search works without the user pasting a key.
 val klipyApiKey: String = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
-}.getProperty("KLIPY_API_KEY", "")
+}.getProperty("KLIPY_API_KEY") ?: System.getenv("KLIPY_API_KEY") ?: ""
 
 // Release signing, read from keystore.properties (kept out of git). Present on
 // the machine that publishes releases; absent elsewhere (debug builds still
@@ -28,8 +29,8 @@ android {
         applicationId = "com.typefix.keyboard"
         minSdk = 28
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.1.29"
+        versionCode = 31
+        versionName = "0.1.30"
         buildConfigField("String", "KLIPY_API_KEY", "\"$klipyApiKey\"")
         // Where the in-app updater looks for new releases.
         buildConfigField("String", "GITHUB_OWNER", "\"dsalehipour\"")
