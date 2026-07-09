@@ -1816,7 +1816,7 @@ class KeyboardView(
      * needs zero extra taps:
      *  - immediately after an apostrophe, comma, or double quote (a letter almost
      *    always follows: "don't", ", then …", a quoted word), and
-     *  - after the SPACE that follows a sentence-ender (? or !), i.e. once you've
+     *  - after the SPACE that follows a sentence-ender (. ? !), i.e. once you've
      *    finished the sentence and are starting the next one.
      */
     private fun returnToLettersAfterPunct(baseChar: String) {
@@ -1825,7 +1825,8 @@ class KeyboardView(
             return
         }
         val immediate = baseChar == "'" || baseChar == "," || baseChar == "\""
-        val endsSentence = baseChar == " " && (lastSymbolChar == '?' || lastSymbolChar == '!')
+        val endsSentence = baseChar == " " &&
+            (lastSymbolChar == '?' || lastSymbolChar == '!' || lastSymbolChar == '.')
         if (immediate || endsSentence) {
             symbols = false
             symbolsPage = 0
