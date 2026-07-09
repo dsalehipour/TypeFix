@@ -118,6 +118,9 @@ class KeyboardView(
     private var lastShiftTapAt = 0L
     private var symbols = false
     private var symbolsPage = 0
+    // Last symbol typed on the symbols layout, so sentence-enders (? !) can flip
+    // back to letters on the following space.
+    private var lastSymbolChar: Char? = null
 
     private var emojiSuggestions: List<String> = emptyList()
     private var emojiSuggestedRow: LinearLayout? = null
@@ -1620,7 +1623,7 @@ class KeyboardView(
     private fun bottomRow(): View = row(45).apply {
         addCell(this, textView("!#1", colText, 14f).apply {
             background = keyBg(R.drawable.key_func_bg)
-            setOnClickListener { symbols = true; symbolsPage = 0; renderKeys() }
+            setOnClickListener { symbols = true; symbolsPage = 0; lastSymbolChar = null; renderKeys() }
         }, 1.5f)
         addCell(this, charKey(",", R.drawable.key_letter_bg, colText, 18f, gestureEligible = false), 1f)
         if (wide) {
@@ -1809,17 +1812,28 @@ class KeyboardView(
     }
 
     /**
-     * Typing an apostrophe, comma, double quote, or question mark from the symbols
-     * layout flips back to the letter keyboard, because what follows (e.g. "don't",
-     * ", then …", a quoted word, or the next sentence) is almost always a letter —
-     * so the common case needs zero extra taps.
+     * From the symbols layout, flip back to the letter keyboard so the common case
+     * needs zero extra taps:
+     *  - immediately after an apostrophe, comma, or double quote (a letter almost
+     *    always follows: "don't", ", then …", a quoted word), and
+     *  - after the SPACE that follows a sentence-ender (? or !), i.e. once you've
+     *    finished the sentence and are starting the next one.
      */
     private fun returnToLettersAfterPunct(baseChar: String) {
-        if (symbols && (baseChar == "'" || baseChar == "," || baseChar == "\"" || baseChar == "?")) {
+        if (!symbols) {
+            lastSymbolChar = null
+            return
+        }
+        val immediate = baseChar == "'" || baseChar == "," || baseChar == "\""
+        val endsSentence = baseChar == " " && (lastSymbolChar == '?' || lastSymbolChar == '!')
+        if (immediate || endsSentence) {
             symbols = false
             symbolsPage = 0
+            lastSymbolChar = null
             renderKeys()
+            return
         }
+        lastSymbolChar = baseChar.singleOrNull()
     }
 
     /** Very light tick on every press anywhere on the keyboard (keys, toolbar,
